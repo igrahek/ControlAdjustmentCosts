@@ -1,6 +1,7 @@
 # Code for the Control Ajdustment Costs paper
 
 Grahek, I., Leng, X., Musslick, S., & Shenhav, A. (2023). Control adjustment costs limit goal flexibility: Empirical evidence and a theoretical account. bioRxiv, 2023-08. 
+
 https://www.biorxiv.org/content/10.1101/2023.08.22.554296v1
 
 ## Contents
