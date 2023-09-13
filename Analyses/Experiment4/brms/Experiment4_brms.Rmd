@@ -1,0 +1,441 @@
+---
+title: "CA costs - Experiment 4"
+author: "Ivan Grahek"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    theme: default
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## About the code
+
+Experiment: Control adjustment costs Experiment 4 (Probability experiment)
+Code written by: Ivan Grahek (2022)
+Description: Code for the analysis of behavioral data for Experiment 4 of the Control adjustment costs project.  
+
+\newpage
+
+# Load the libraries 
+
+
+```{r, message=FALSE}
+# clear the environment
+rm(list=ls()) 
+
+# set seed
+set.seed(42) 
+
+#load packages and install them if they're not installed. the pacman package will 
+#automatically check for the requested packages and download & install them if they are not on the computer.
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(brms,here,broom,knitr,tidyverse,plyr,cowplot,emmeans,tidybayes,viridis,MASS)
+
+# Define the summary posterior function
+summarize_posterior <- function(model,variable) {
+   post = posterior_samples(model, "^b")
+   ggplot(post,aes_string(x=paste0("`",variable,"`"))) + 
+     geom_histogram(bins=50) + 
+     geom_vline(xintercept=0, linetype="dotted",size=1) + 
+     labs(title=paste(variable,"p<0 = ",length(subset(post[[variable]],post[[variable]]<0))/length(post[[variable]]))) +
+     theme_classic() 
+
+}
+
+# Define the difference summary posterior function
+summarize_difference_posterior <- function(V1,V2,effect) {
+   post = as.data.frame(V1-V2)
+   ggplot(data=post,aes(x=`V1 - V2`)) + 
+     geom_histogram(bins=50) + 
+     geom_vline(xintercept=0, linetype="dotted",size=1) + 
+     labs(title=paste(effect,"p<0 = ",length(post[post<0])/length(post$`V1 - V2`))) +
+     theme_classic() 
+
+}
+
+# Define calculate the posterior probabilities function
+posterior_probabilities <- function(model) {
+   parameter_names = rownames(summary(model)[["fixed"]])
+   post_prob = rep(0,length(parameter_names))
+   for (i in 1:length(parameter_names)){
+     t = hypothesis(model,paste0(parameter_names[i],"<0"))
+     post_prob[i] = t$hypothesis$Post.Prob
+   }
+  return(post_prob)
+}
+
+```
+
+
+
+
+# Main analyses
+
+## Reaction times
+
+### Import the model
+
+```{r,warning=T, message=T}
+
+model = readRDS("Cluster/output/model.RT.rds")
+
+```
+
+### Checks
+
+Plotting the chains
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+plot(model, pars = "^b_", ask = FALSE, N=4)
+```
+
+R hat
+```{r, warning=FALSE, message=FALSE}
+# R hat for all parameters
+stanplot(model, type="rhat_hist")
+```
+
+
+Posterior predictive check
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+pp_check(model)
+pp_check(model,type="dens_overlay_grouped",group="Congruency")
+pp_check(model,type="dens_overlay_grouped",group="intervalType")
+pp_check(model,type="dens_overlay_grouped",group="blockType")
+
+```
+
+### Summary of the best model
+
+```{r, warning=FALSE, message=FALSE}
+# Summary of the model
+x=summary(model)[["fixed"]]
+x$`HDI(95%)` = paste(format(round(x$`l-95% CI`, 2), nsmall = 2), format(round(x$`u-95% CI`, 2), nsmall = 2), sep=", ")
+x$`l-95% CI` = NULL
+x$`u-95% CI` = NULL
+x$Bulk_ESS = NULL
+x$Rhat = NULL
+x$Tail_ESS = NULL
+
+# add a row name column
+names = rownames(x)
+x = cbind(names,x)
+rownames(x) = NULL
+
+# add a row name column
+# turn into numeric to round
+x$Estimate = as.numeric(x$Estimate)
+x$Est.Error = as.numeric(x$Est.Error)
+
+# calculate the posterior probabilities
+x$PostProb = posterior_probabilities(model)
+
+# edit the column names
+kable(x,digits = 2,col.names = c("Parameter", "Estimate", "SE", "CI (95%)","p<0"),align = "lrrrr")
+
+```
+
+
+### Plotting the  model
+
+```{r, warning=FALSE, message=FALSE}
+
+# Extract posteriors
+posterior = as_draws_df(model, variable = c("b_Intercept",
+                                            "b_blockTypeLinear",
+                                            "b_blockTypeQuadratic",
+                                            "b_blockTypeCubical"))
+# Remove the non-necessary variables
+posterior = posterior[,1:4]
+
+# Set the intercept to the mean value
+posterior$b_Intercept = mean(posterior$b_Intercept)
+
+# Get the main effects of block type
+BlockType = cbind(c(1,1,1,1),contr.poly(4))
+MainEffects =  as.data.frame(t(BlockType %*% t(posterior)))
+colnames(MainEffects) = c("Main_2intervals","Main_4intervals","Main_8intervals","Main_Fixed")
+
+# Extract posteriors
+posterior = as_draws_df(model, variable = c("b_intervalTypeSpeed_min_Accuracy",
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeLinear",
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeQuadratic",
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeCubical"))
+
+# Remove the non-necessary variables
+posterior = posterior[,1:4]
+
+# Get the interactions
+BlockType = cbind(c(1,1,1,1),contr.poly(4))
+Interactions =  as.data.frame(t(BlockType %*% t(posterior)))
+colnames(Interactions) = c("Interactions_2intervals","Interactions_4intervals","Interactions_8intervals","Interactions_Fixed")
+
+# Calculate per condition
+results = as.data.frame(matrix(1,length(MainEffects$Main_2intervals)))
+
+results$Speed_2intervals = MainEffects$Main_2intervals + Interactions$Interactions_2intervals 
+results$Accuracy_2intervals = MainEffects$Main_2intervals - Interactions$Interactions_2intervals 
+
+results$Speed_4intervals = MainEffects$Main_4intervals + Interactions$Interactions_4intervals 
+results$Accuracy_4intervals = MainEffects$Main_4intervals - Interactions$Interactions_4intervals
+
+results$Speed_8intervals = MainEffects$Main_8intervals + Interactions$Interactions_8intervals 
+results$Accuracy_8intervals = MainEffects$Main_8intervals - Interactions$Interactions_8intervals
+
+results$Speed_Fixed = MainEffects$Main_Fixed + Interactions$Interactions_Fixed 
+results$Accuracy_Fixed = MainEffects$Main_Fixed - Interactions$Interactions_Fixed
+
+# Remove the first row
+results = results[,-1]
+
+
+results = as.data.frame(posterior_summary(results))
+results$factor = rownames(results)
+results = results %>% separate(factor,c('Interval Type','Block Type'),'_')
+
+# Reorder the factor levels
+results$`Interval Type` = factor(results$`Interval Type`, levels = c("Accuracy","Speed"))
+results$`Block Type` = factor(results$`Block Type`, levels = c("Fixed","8intervals","4intervals","2intervals"))
+
+
+# Plot
+p = ggplot(results,aes(x=`Block Type`,y=Estimate,color=`Interval Type`)) + 
+  geom_pointrange(aes(ymin=Q2.5, ymax=Q97.5),position=position_dodge(0.4),size=2, fatten = 2) +
+  guides(color = guide_legend(override.aes=list(shape = 20)))+
+    ylab("Reaction times (ms)")+
+  xlab("Performance goal")+
+  scale_y_continuous(limits = c(600,850))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,85,5,5), "mm"),
+        axis.line.x.bottom=element_line(linewidth=0.5),
+        axis.line.y.left=element_line(linewidth=0.5),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=33,color = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none",
+        legend.background = element_rect(fill = "transparent", color = NA))  
+p
+Fig5.RT = p
+
+```
+
+
+
+## Accuracy
+
+### Import the model
+
+```{r,warning=T, message=T}
+
+model = readRDS("Cluster/output/model.Acc.rds")
+
+```
+
+### Checks
+
+Plotting the chains
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+plot(model, pars = "^b_", ask = FALSE, N=4)
+```
+
+R hat
+```{r, warning=FALSE, message=FALSE}
+# R hat for all parameters
+stanplot(model, type="rhat_hist")
+```
+
+
+Posterior predictive check
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+pp_check(model)
+pp_check(model,type="dens_overlay_grouped",group="Congruency")
+pp_check(model,type="dens_overlay_grouped",group="intervalType")
+pp_check(model,type="dens_overlay_grouped",group="blockType")
+```
+
+### Summary of the best model
+
+```{r, warning=FALSE, message=FALSE}
+# Summary of the model
+x=summary(model)[["fixed"]]
+x$`HDI(95%)` = paste(format(round(x$`l-95% CI`, 2), nsmall = 2), format(round(x$`u-95% CI`, 2), nsmall = 2), sep=", ")
+x$`l-95% CI` = NULL
+x$`u-95% CI` = NULL
+x$Bulk_ESS = NULL
+x$Rhat = NULL
+x$Tail_ESS = NULL
+
+# add a row name column
+names = rownames(x)
+x = cbind(names,x)
+rownames(x) = NULL
+
+
+# turn into numeric to round
+x$Estimate = as.numeric(x$Estimate)
+x$Est.Error = as.numeric(x$Est.Error)
+
+# calculate the posterior probabilities
+x$PostProb = posterior_probabilities(model)
+
+# edit the column names
+kable(x,digits = 2,col.names = c("Parameter", "Estimate", "SE", "CI (95%)","p<0"),align = "lrrrr")
+
+```
+
+
+
+### Plotting the  model
+
+```{r, warning=FALSE, message=FALSE}
+
+# Extract posteriors
+posterior = as_draws_df(model, variable = c("b_Intercept",
+                                            "b_blockTypeLinear",
+                                            "b_blockTypeQuadratic",
+                                            "b_blockTypeCubical"))
+# Remove the non-necessary variables
+posterior = posterior[,1:4]
+
+# Set the intercept to the mean value
+posterior$b_Intercept = mean(posterior$b_Intercept)
+
+# Get the main effects of block type
+BlockType = cbind(c(1,1,1,1),contr.poly(4))
+MainEffects =  as.data.frame(t(BlockType %*% t(posterior)))
+colnames(MainEffects) = c("Main_2intervals","Main_4intervals","Main_8intervals","Main_Fixed")
+
+# Extract posteriors
+posterior = as_draws_df(model, variable = c("b_intervalTypeSpeed_min_Accuracy",
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeLinear",
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeQuadratic",
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeCubical"))
+
+# Remove the non-necessary variables
+posterior = posterior[,1:4]
+
+# Get the interactions
+BlockType = cbind(c(1,1,1,1),contr.poly(4))
+Interactions =  as.data.frame(t(BlockType %*% t(posterior)))
+colnames(Interactions) = c("Interactions_2intervals","Interactions_4intervals","Interactions_8intervals","Interactions_Fixed")
+
+# Calculate per condition
+results = as.data.frame(matrix(1,length(MainEffects$Main_2intervals)))
+
+results$Speed_2intervals = MainEffects$Main_2intervals + Interactions$Interactions_2intervals 
+results$Accuracy_2intervals = MainEffects$Main_2intervals - Interactions$Interactions_2intervals 
+
+results$Speed_4intervals = MainEffects$Main_4intervals + Interactions$Interactions_4intervals 
+results$Accuracy_4intervals = MainEffects$Main_4intervals - Interactions$Interactions_4intervals
+
+results$Speed_8intervals = MainEffects$Main_8intervals + Interactions$Interactions_8intervals 
+results$Accuracy_8intervals = MainEffects$Main_8intervals - Interactions$Interactions_8intervals
+
+results$Speed_Fixed = MainEffects$Main_Fixed + Interactions$Interactions_Fixed 
+results$Accuracy_Fixed = MainEffects$Main_Fixed - Interactions$Interactions_Fixed
+
+# Remove the first row
+results = results[,-1]
+
+
+results = as.data.frame(posterior_summary(results))
+results$factor = rownames(results)
+results = results %>% separate(factor,c('Interval Type','Block Type'),'_')
+
+# Reorder the factor levels
+results$`Interval Type` = factor(results$`Interval Type`, levels = c("Accuracy","Speed"))
+results$`Block Type` = factor(results$`Block Type`, levels = c("Fixed","8intervals","4intervals","2intervals"))
+
+# Turn logits into probabilities
+results$Estimate = exp(results$Estimate)
+results$Estimate = results$Estimate / (1 + results$Estimate)
+
+results$Q2.5 = exp(results$Q2.5)
+results$Q2.5 = results$Q2.5 / (1 + results$Q2.5)
+
+results$Q97.5 = exp(results$Q97.5)
+results$Q97.5 = results$Q97.5 / (1 + results$Q97.5)
+
+# Plot
+p = ggplot(results,aes(x=`Block Type`,y=Estimate,color=`Interval Type`)) + 
+  geom_pointrange(aes(ymin=Q2.5, ymax=Q97.5),position=position_dodge(0.4),size=2, fatten = 2) +
+  guides(color = guide_legend(override.aes=list(shape = 20)))+
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+  scale_y_continuous(limits = c(0.58,1))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,85,5,5), "mm"),
+        axis.line.x.bottom=element_line(linewidth=0.5),
+        axis.line.y.left=element_line(linewidth=0.5),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=33,color = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none",
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+
+
+p
+
+
+Fig5.Acc = p
+
+```
+
+
+
+
+# Save the figures
+
+
+```{r, warning=FALSE, message=FALSE}
+
+# pdf(file="../../../Manuscript/figures/Figure_5_behavior.pdf",height=4,width=20)
+# 
+# p = cowplot::plot_grid(Fig5.RT,
+#                        Fig5.Acc,
+#                        nrow = 1)
+# p
+# dev.off()
+
+
+pdf(file="../../../Manuscript/figures/Figure_5_behavior.pdf",height=6,width=20)
+
+p = cowplot::plot_grid(Fig5.RT,
+                       Fig5.Acc,
+                       nrow = 1)
+p
+dev.off()
+
+```
+

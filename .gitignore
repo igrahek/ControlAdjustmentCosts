@@ -1,0 +1,31 @@
+*.rds
+*.db
+*.html
+*.pdf
+
+# Do not upload the downloaded models
+
+Analyses/Experiment1/ddm/output
+Analyses/Experiment1/brms/output
+
+Analyses/Experiment2/ddm/output
+Analyses/Experiment2/brms/output
+
+Analyses/Experiment3/ddm/output
+Analyses/Experiment3/brms/output
+
+Analyses/Experiment4/ddm/output
+Analyses/Experiment4/brms/output
+
+# Do not upload the data that has personal information
+
+Analyses/Experiment1/data/RawData/2022-01-04_3.0/ReconfCost+SRM_January+26,+2022_08.36.csv
+Analyses/Experiment1/data/RawData/2022-01-04_3.0/prolific_export_6197e082183b06f1f3f5cfe1.csv
+Analyses/Experiment2/data/RawData/2021-12-18_4.0/prolific_export_6197e082183b06f1f3f5cfe1.csv
+Analyses/Experiment3/data/RawData/Version6/2022-11-29_2.0/prolific_export_636dbf93624dfcd33f6d98bd.csv
+Analyses/Experiment4/preprocessing/data/RawData/Version5/2022-10-28_1.0/prolific_export_6352bfef1ee58560644ce493.csv
+
+# Do not upload the manuscript folder
+Manuscript/
+
+

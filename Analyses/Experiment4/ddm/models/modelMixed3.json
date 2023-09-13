@@ -1,0 +1,34 @@
+{
+	"model":"modelMixed3",
+	"study":"Mixed",
+	"data":"DDM_Mixed_nSubs_55",
+	"totalsample":14000,
+	"burnedsample":12000,
+	"predictors":{
+		"intervalType":{
+			"type":"category",
+			"levels":["Speed","Accuracy"],
+			"contrast":"Sum"
+		},
+		"congruency":{
+			"type":"category",
+			"levels":["incongruent","congruent"],
+			"contrast":"Sum"
+		},
+		"blockType":{
+			"type":"category",
+			"levels":["2intervals", "4intervals", "8intervals","Fixed"],
+			"contrast":"Poly"
+		},
+		"scaledRunningTime":{
+			"type":"continuous"
+		}
+	},
+	"formula":["a~intervalType*blockType+scaledRunningTime",
+		   "v~intervalType*blockType+congruency",
+		   "z~congruency"
+	],
+	"bias":true,
+	"includes":["p_outlier","sv","st"],
+	"errors":"ae_only"
+}

@@ -1,0 +1,1074 @@
+---
+title: "Experiment 1 analysis"
+author: "Ivan Grahek"
+date: "01/03/2022"
+output:
+  html_document:
+    code_folding: hide
+    theme: default
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+# Load the data and the packages
+
+```{r,warning=FALSE,echo=FALSE,message=FALSE}
+# clear the environment
+rm(list=ls()) 
+#load packages and install them if they're not installed
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(plyr,tidyverse, lme4,MASS,sjPlot,coefplot,cowplot,psych,rmarkdown,knitr,kable,cowplot)
+
+# set seed
+set.seed(42) 
+
+df.trial = read_csv("../../Data/ProcessedData/CleanDataSpeedAccuracyV3_nSubs_44.csv")
+
+```
+
+# Descriptives and design checks
+
+```{r , results='asis'}
+
+# Interval types
+summary_table = ddply(df.trial,.(SubID,blockType,intervalType),plyr::summarize,
+                                       MeanRT=mean(rt,na.rm=TRUE), # mean RT per condition
+                                       MeanAcc=mean(hit,na.rm=TRUE), 
+                                       Ntrials=length(hit))
+print(kable(summary_table, align="l", caption="Interval types"))
+
+
+# summary_table = ddply(df.trial,.(blockType,intervalType,type,trialNum),plyr::summarize,
+#                                        Ntrials=length(hit))%>%
+#   filter(trialNum<6)
+# 
+# plot = ggplot(data=summary_table,
+#                aes(x=trialNum,y=Ntrials,group=type))+
+#                geom_line(aes(linetype=type),size=1)+ 
+#                geom_point(size=2)+
+#                  facet_grid(.~blockType) + 
+# 
+#   scale_x_continuous(breaks = 1:10)+
+#     theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+#         axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+#         text = element_text(size=20),
+#         panel.grid.major = element_blank(),
+#         panel.grid.minor = element_blank(),
+#         panel.border = element_blank(),
+#         panel.background = element_blank(),
+#         plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+
+
+# # Accuracy per subject
+# summary_table = ddply(df.trial,.(SubID),plyr::summarize,
+#                                        MeanRT=mean(rt,na.rm=TRUE), # mean RT per condition
+#                                        MeanAcc=mean(hit,na.rm=TRUE), 
+#                                        Ntrials=length(hit))
+# print(kable(summary_table, align="l", caption="Accuracy"))
+
+
+df.errors<-df.trial%>%
+  filter(hit==0)%>%
+  dplyr::select(SubID,ErrorType,rt,intervalType)
+
+ df.errorTypesSummary<-df.errors %>%
+    dplyr:: group_by(SubID,ErrorType,intervalType) %>%
+    dplyr::  summarise(count=n(),
+                       avgRT=mean(rt))
+ 
+ 
+  # df.allErrorsSummary<-df.errors %>%
+  #   group_by(SubID,intervalType) %>%
+  #   count=count(type,.drop = FALSE)
+  
+
+ 
+ 
+#  # For each subject
+# for (subject in 1:length(unique(df.errorTypesSummary$SubID))) {
+# 
+#   #Plotting
+#   plot_data = subset(df.errorTypesSummary,df.errorTypesSummary$SubID == unique(df.errorTypesSummary$SubID)[subject])
+#   
+#   plot = ggplot(plot_data, aes(x=intervalType,y=count, fill=ErrorType)) + 
+#   geom_bar(stat="identity", color="black", position=position_dodge(.9))+
+#   # geom_point(size=2)+
+#   # scale_y_continuous(limits=c(500,1500)) + 
+#   ggtitle(paste0('Error types - Subject ',unique(df.errorTypesSummary$SubID)[subject])) +
+#   theme_classic(base_size = 10) 
+# 
+#   print(plot)
+#     # print(Acc)
+# 
+# }
+
+```
+
+
+
+# Permutation 
+```{r}
+
+# 1 - do the permutation on df.interval
+Permuted = subset(df.trial, df.trial$blockType=="Fixed")
+df.interval <- Permuted %>% 
+  group_by(SubID,Version,blockNum,intervalNum,intervalLength,intervalType) %>% 
+  dplyr::summarise(trialsPerInterval = n())
+
+df.interval <- df.interval %>%
+  group_by(SubID,blockNum) %>%
+  mutate(random = row_number()) %>%
+  mutate(random = random[sample(row_number())])
+
+# Permute 10%
+df.interval$intervalTypePermute10 = ifelse(df.interval$intervalType=="Speed" & df.interval$random<4,"Accuracy",as.character(df.interval$intervalType))
+df.interval$intervalTypePermute10 = ifelse(df.interval$intervalType=="Accuracy" & df.interval$random<4,"Speed",as.character(df.interval$intervalTypePermute10))
+
+# Permute 20%
+df.interval$intervalTypePermute20 = ifelse(df.interval$intervalType=="Speed" & df.interval$random<7,"Accuracy",as.character(df.interval$intervalType))
+df.interval$intervalTypePermute20 = ifelse(df.interval$intervalType=="Accuracy" & df.interval$random<7,"Speed",as.character(df.interval$intervalTypePermute20))
+
+# Permute 30%
+df.interval$intervalTypePermute30 = ifelse(df.interval$intervalType=="Speed" & df.interval$random<10,"Accuracy",as.character(df.interval$intervalType))
+df.interval$intervalTypePermute30 = ifelse(df.interval$intervalType=="Accuracy" & df.interval$random<10,"Speed",as.character(df.interval$intervalTypePermute30))
+
+
+# 2 - inner join df.interval and df.trial by interval number
+df.trial.permuted.mixed = plyr::join(subset(df.trial, df.trial$blockType=="Fixed"),df.interval, by = c("SubID", "blockNum", "intervalNum"),type="full")
+df.trial.permuted.mixed$blockType = "Varying"
+
+# add the pure fixed blocks again
+
+df.trial.permuted.fixed = df.trial.permuted.mixed
+df.trial.permuted.fixed$intervalTypePermute10 = as.character(df.trial.permuted.fixed$intervalType)
+df.trial.permuted.fixed$intervalTypePermute20 = as.character(df.trial.permuted.fixed$intervalType)
+df.trial.permuted.fixed$intervalTypePermute30 = as.character(df.trial.permuted.fixed$intervalType)
+df.trial.permuted.fixed$blockType = "Fixed"
+
+df.trial.permuted = rbind(df.trial.permuted.fixed,df.trial.permuted.mixed)
+
+
+
+# ddply(df.trial.permuted,.(blockType,intervalTypePermute20),plyr::summarize,
+#                                        MeanRT=mean(rt,na.rm=TRUE), # mean RT per condition
+#                                        MeanAcc=mean(hit,na.rm=TRUE), 
+#                                        Ntrials=length(hit))
+# 
+# View(cbind(df.trial.permuted.fixed$SubID,df.trial.permuted.fixed$hit,df.trial.permuted.fixed$blockNum,df.trial.permuted.fixed$intervalNum,df.trial.permuted.fixed$intervalType,df.trial.permuted.fixed$intervalTypePermute10))
+# 
+# View(cbind(df.trial.permuted.mixed$SubID,df.trial.permuted.mixed$hit,df.trial.permuted.mixed$blockNum,df.trial.permuted.fixed$intervalNum,df.trial.permuted.mixed$intervalType,df.trial.permuted.mixed$intervalTypePermute10))
+# 
+
+```
+
+
+
+# Re-scale the data
+
+```{r }
+
+# # # take out the random errors
+# df.trial = df.trial %>%
+#   filter(ErrorType != "random")
+
+df.trial.permuted$blockType = as.factor(df.trial.permuted$blockType)
+
+# Center the continuous variables 
+df.trial$scaledIntervalLength = scale(df.trial$scaledIntervalLength, scale= FALSE, center = TRUE)
+df.trial$scaledIntervalSessionNum = scale(df.trial$scaledIntervalSessionNum, scale= FALSE, center = TRUE)
+
+# Contrast code the categorical variables
+df.trial$Congruency = ordered(df.trial$type, levels = c("congruent", "incongruent"))
+contrasts(df.trial$Congruency) = contr.sdif(2)
+colnames(attr(df.trial$Congruency, "contrasts")) =  c("inc_min_con")
+
+# Contrast code the categorical variables
+df.trial.permuted$Congruency = ordered(df.trial.permuted$type, levels = c("congruent", "incongruent"))
+contrasts(df.trial.permuted$Congruency) = contr.sdif(2)
+colnames(attr(df.trial.permuted$Congruency, "contrasts")) =  c("inc_min_con")
+
+df.trial$intervalType = ordered(df.trial$intervalType, levels = c("Speed","Accuracy"))
+contrasts(df.trial$intervalType) = contr.sdif(2)
+colnames(attr(df.trial$intervalType, "contrasts")) =  c("Speed_min_Accuracy")
+
+
+df.trial.permuted$intervalType = ordered(df.trial.permuted$intervalType, levels = c("Speed","Accuracy"))
+contrasts(df.trial.permuted$intervalType) = contr.sdif(2)
+colnames(attr(df.trial.permuted$intervalType, "contrasts")) =  c("Speed_min_Accuracy")
+
+df.trial.permuted$intervalTypePermute10 = ordered(df.trial.permuted$intervalTypePermute10, levels = c("Speed","Accuracy"))
+contrasts(df.trial.permuted$intervalTypePermute10) = contr.sdif(2)
+colnames(attr(df.trial.permuted$intervalTypePermute10, "contrasts")) =  c("Speed_min_Accuracy")
+
+df.trial.permuted$intervalTypePermute20 = ordered(df.trial.permuted$intervalTypePermute20, levels = c("Speed","Accuracy"))
+contrasts(df.trial.permuted$intervalTypePermute20) = contr.sdif(2)
+colnames(attr(df.trial.permuted$intervalTypePermute20, "contrasts")) =  c("Speed_min_Accuracy")
+
+df.trial.permuted$intervalTypePermute30 = ordered(df.trial.permuted$intervalTypePermute30, levels = c("Speed","Accuracy"))
+contrasts(df.trial.permuted$intervalTypePermute30) = contr.sdif(2)
+colnames(attr(df.trial.permuted$intervalTypePermute30, "contrasts")) =  c("Speed_min_Accuracy")
+
+df.trial$Switch = ordered(df.trial$Switch, levels = c("Switch","Repeat"))
+contrasts(df.trial$Switch) = contr.sdif(2)
+colnames(attr(df.trial$Switch, "contrasts")) =  c("Switch_min_Repeat")
+
+df.trial$intervalNumHalf = ifelse(df.trial$intervalNum>15,"Second","First")
+df.trial$intervalNumHalf = ordered(df.trial$intervalNumHalf, levels = c("Second","First"))
+contrasts(df.trial$intervalNumHalf) = contr.sdif(2)
+colnames(attr(df.trial$intervalNumHalf, "contrasts")) =  c("Second_min_First")
+
+
+
+```
+
+# Original dataset
+## Task Data Analysis 
+
+### Accuracy 
+
+#### All errors 
+```{r}
+
+# Specific interaction
+model.acc = glmer(hit ~ type + intervalType/(blockType) + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),
+                data = df.trial, family = binomial(link="logit"))
+
+tab_model(model.acc,title = "Accuracy - Trial Based")
+
+model.acc = glmer(hit ~ type + intervalType*blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),
+                data = df.trial, family = binomial(link="logit"))
+
+
+p = plot_model(model.acc,type = "pred", terms = c("intervalType","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Accuracy")+ 
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+    scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+Acc = p
+
+Acc
+
+```
+
+
+
+
+### Response Time 
+
+#### Correct trials
+
+```{r}
+
+
+
+# Specific interaction
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalType/blockType  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),data = df.trial, REML = F)
+
+tab_model(model.accrt.,title = "RT - Trial Based")
+
+# Plot
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalType * blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),data = df.trial, REML = F)
+
+
+p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Reaction times")+ 
+  ylab("log RT")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.ticks.length.x.left = unit(.25,"cm"),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+
+RT = p
+
+RT
+
+```
+
+#### Save
+
+```{r, message=FALSE}
+cowplot::plot_grid(RT,Acc, ncol = 2)
+
+ggsave("Exp1_Behavior.tiff", units="in", width=12, height=4, dpi=500, compression = 'lzw')
+
+```
+
+
+
+
+
+
+
+
+<!-- ### Incorrect trials - all errors -->
+
+<!-- ```{r} -->
+<!-- # Specific interaction -->
+<!-- model.accrt. = lmer(log10_ErrRT ~ Congruency + intervalType/blockType  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),data = df.trial, REML = F) -->
+
+<!-- tab_model(model.accrt.,title = "RT - Trial Based") -->
+
+<!-- # Plot -->
+<!-- model.accrt. = lmer(log10_ErrRT ~ Congruency + intervalType * blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType+ blockType|uniqueid),data = df.trial, REML = F) -->
+
+<!-- p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","blockType")) -->
+<!-- p +  -->
+<!--   ggtitle("All errors")+  -->
+<!--   ylab("logRT")+ -->
+<!--   theme(axis.line = element_line(colour = "black"), -->
+<!--         axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)), -->
+<!--         text = element_text(size=20), -->
+<!--         panel.grid.major = element_blank(), -->
+<!--         panel.grid.minor = element_blank(), -->
+<!--         panel.border = element_blank(), -->
+<!--         panel.background = element_blank(), -->
+<!--         axis.title.x=element_blank(), -->
+<!--         plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))  -->
+
+<!-- # p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","Congruency")) -->
+<!-- # p + theme_classic() -->
+
+
+
+<!-- ``` -->
+
+
+
+
+
+
+<!-- ### Incorrect trials - automatic errors -->
+
+<!-- ```{r} -->
+<!-- # Specific interaction -->
+<!-- model.accrt. = lmer(log10_ErrRT ~  intervalType/blockType  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),data = subset(df.trial,df.trial$ErrorType!="random"), REML = F) -->
+
+<!-- tab_model(model.accrt.,title = "RT - Trial Based") -->
+
+<!-- # Plot -->
+<!-- model.accrt. = lmer(log10_ErrRT ~  intervalType * blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType+ blockType|uniqueid),data = subset(df.trial,df.trial$ErrorType!="random"), REML = F) -->
+
+
+<!-- p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","blockType")) -->
+<!-- p +  -->
+<!--   ggtitle("Automatic errors")+  -->
+<!--   ylab("logRT")+ -->
+<!--   theme(axis.line = element_line(colour = "black"), -->
+<!--         axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)), -->
+<!--         text = element_text(size=20), -->
+<!--         panel.grid.major = element_blank(), -->
+<!--         panel.grid.minor = element_blank(), -->
+<!--         panel.border = element_blank(), -->
+<!--         panel.background = element_blank(), -->
+<!--         axis.title.x=element_blank(), -->
+<!--         plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))  -->
+
+<!-- # p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","Congruency")) -->
+<!-- # p + theme_classic() -->
+
+
+
+<!-- ``` -->
+
+
+
+
+
+
+<!-- ### Incorrect trials - random errors -->
+
+<!-- ```{r} -->
+<!-- # Specific interaction -->
+<!-- model.accrt. = lmer(log10_ErrRT ~ Congruency + intervalType/blockType  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),data = subset(df.trial,df.trial$ErrorType!="automatic"), REML = F) -->
+
+<!-- tab_model(model.accrt.,title = "RT - Trial Based") -->
+
+<!-- # Plot -->
+<!-- model.accrt. = lmer(log10_ErrRT ~ Congruency + intervalType * blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType+ blockType|uniqueid),data = subset(df.trial,df.trial$ErrorType!="automatic"), REML = F) -->
+
+
+<!-- p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","blockType")) -->
+<!-- p +  -->
+<!--   ggtitle("Random errors")+  -->
+<!--   ylab("logRT")+ -->
+<!--   theme(axis.line = element_line(colour = "black"), -->
+<!--         axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)), -->
+<!--         text = element_text(size=20), -->
+<!--         panel.grid.major = element_blank(), -->
+<!--         panel.grid.minor = element_blank(), -->
+<!--         panel.border = element_blank(), -->
+<!--         panel.background = element_blank(), -->
+<!--         axis.title.x=element_blank(), -->
+<!--         plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))  -->
+
+<!-- # p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","Congruency")) -->
+<!-- # p + theme_classic() -->
+
+
+
+<!-- ``` -->
+
+
+
+
+
+
+
+
+## Switch repeat analysis
+
+### Accuracy 
+
+#### All errors 
+```{r}
+
+# Specific interaction
+model.acc = glmer(hit ~ type + intervalType/Switch + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + Switch|uniqueid),
+                data = subset(df.trial,df.trial$blockType=="Mixed"), family = binomial(link="logit"))
+
+tab_model(model.acc,title = "Accuracy - Trial Based")
+
+model.acc = glmer(hit ~ type + intervalType*Switch + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + Switch|uniqueid),
+                data = subset(df.trial,df.trial$blockType=="Mixed"), family = binomial(link="logit"))
+
+
+p = plot_model(model.acc,type = "pred", terms = c("intervalType","Switch"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Switch"
+
+p = p + 
+  ggtitle("Accuracy - Mixed blocks")+ 
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+    scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+Acc_Switch = p
+
+Acc_Switch
+
+
+
+
+
+# Repeat trials from the fixed blocks
+
+model.acc = glmer(hit ~ type + intervalType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType|uniqueid),
+                data = subset(df.trial,df.trial$blockType=="Fixed"), family = binomial(link="logit"))
+
+p = plot_model(model.acc,type = "pred", terms = c("intervalType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Switch"
+
+p = p + 
+  ggtitle("Accuracy - Fixed blocks")+ 
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+    scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+Acc_Repeat_Fixed = p
+
+Acc_Repeat_Fixed
+
+```
+
+
+### Response Time 
+
+#### Correct trials
+
+```{r}
+# Specific interaction
+model.accrt. = lmer(log10_AccRT ~ type + intervalType/Switch  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType +Switch|uniqueid),data = subset(df.trial,df.trial$blockType=="Mixed"), REML = F)
+
+tab_model(model.accrt.,title = "RT - Trial Based")
+
+# Plot
+model.accrt. = lmer(log10_AccRT ~ type + intervalType  * Switch + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType +Switch|uniqueid),data = subset(df.trial,df.trial$blockType=="Mixed"), REML = F)
+
+p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","Switch"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Switch"
+
+p = p + 
+  ggtitle("Reaction times - Mixed blocks")+ 
+  ylab("log RT")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.ticks.length.x.left = unit(.25,"cm"),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+
+RT_Switch = p
+
+RT_Switch
+
+# Repeat trials from the fixed blocks
+# Plot
+model.accrt. = lmer(log10_AccRT ~ type + intervalType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType|uniqueid),data = subset(df.trial,df.trial$blockType=="Fixed"), REML = F)
+
+p = plot_model(model.accrt.,type = "pred", terms = c("intervalType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Switch"
+
+p = p + 
+  ggtitle("Reaction times - Fixed blocks")+ 
+  ylab("log RT")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.ticks.length.x.left = unit(.25,"cm"),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+
+RT_Repeat_Fixed = p
+
+RT_Repeat_Fixed
+
+```
+
+
+
+
+#### Save
+
+```{r, message=FALSE}
+cowplot::plot_grid(RT_Switch,RT_Repeat_Fixed,Acc_Switch,Acc_Repeat_Fixed, ncol = 2)
+
+ggsave("Exp1_V3_SwitchRpeat.tiff", units="in", width=12, height=8, dpi=500, compression = 'lzw')
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+# 0% Permuted dataset
+
+
+## Task Data Analysis 
+
+### Accuracy 
+
+#### All errors 
+```{r}
+
+# Specific interaction
+model.acc = glmer(hit ~ type + intervalType/(blockType) + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),
+                data = df.trial.permuted, family = binomial(link="logit"))
+
+tab_model(model.acc,title = "Accuracy - Trial Based")
+
+model.acc = glmer(hit ~ type + intervalType*blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),
+                data = df.trial.permuted, family = binomial(link="logit"))
+
+
+p = plot_model(model.acc,type = "pred", terms = c("intervalType","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Accuracy")+ 
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+    scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+Acc = p
+
+Acc
+```
+
+
+### Response Time 
+
+#### Correct trials
+
+```{r}
+
+
+# Specific interaction
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalType/blockType  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),data = df.trial.permuted, REML = F)
+
+
+tab_model(model.accrt.,title = "RT - Trial Based")
+
+# Plot
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalType * blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalType + blockType|uniqueid),data = df.trial.permuted, REML = F)
+
+
+p = plot_model(model.accrt.,type = "pred", terms = c("intervalType","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Reaction times")+ 
+  ylab("log RT")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.ticks.length.x.left = unit(.25,"cm"),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+
+RT = p
+
+RT
+
+```
+
+#### Save
+
+```{r, message=FALSE}
+# cowplot::plot_grid(RT,Acc, ncol = 2)
+# 
+# ggsave("Exp1_Behavior.tiff", units="in", width=12, height=4, dpi=500, compression = 'lzw')
+
+```
+
+
+
+
+
+
+
+# 10% Permuted dataset
+
+
+## Task Data Analysis 
+
+### Accuracy 
+
+#### All errors 
+```{r}
+
+# Specific interaction
+model.acc = glmer(hit ~ type + intervalTypePermute10/(blockType) + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute10 + blockType|uniqueid),
+                data = df.trial.permuted, family = binomial(link="logit"))
+
+tab_model(model.acc,title = "Accuracy - Trial Based")
+
+model.acc = glmer(hit ~ type + intervalTypePermute10*blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute10 + blockType|uniqueid),
+                data = df.trial.permuted, family = binomial(link="logit"))
+
+
+p = plot_model(model.acc,type = "pred", terms = c("intervalTypePermute10","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Accuracy")+ 
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+    scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+Acc = p
+
+Acc
+```
+
+
+### Response Time 
+
+#### Correct trials
+
+```{r}
+# Specific interaction
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalTypePermute10/blockType  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute10 + blockType|uniqueid),data = df.trial.permuted, REML = F)
+
+
+tab_model(model.accrt.,title = "RT - Trial Based")
+
+# Plot
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalTypePermute10 * blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute10 + blockType|uniqueid),data = df.trial.permuted, REML = F)
+
+
+p = plot_model(model.accrt.,type = "pred", terms = c("intervalTypePermute10","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Reaction times")+ 
+  ylab("log RT")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.ticks.length.x.left = unit(.25,"cm"),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+
+RT = p
+
+RT
+
+```
+
+#### Save
+
+```{r, message=FALSE}
+# cowplot::plot_grid(RT,Acc, ncol = 2)
+# 
+# ggsave("Exp1_Behavior.tiff", units="in", width=12, height=4, dpi=500, compression = 'lzw')
+
+```
+
+
+
+
+
+
+
+# 20% Permuted dataset
+
+
+## Task Data Analysis 
+
+### Accuracy 
+
+#### All errors 
+```{r}
+
+# Specific interaction
+model.acc = glmer(hit ~ type + intervalTypePermute20/(blockType) + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute20 + blockType|uniqueid),
+                data = df.trial.permuted, family = binomial(link="logit"))
+
+tab_model(model.acc,title = "Accuracy - Trial Based")
+
+model.acc = glmer(hit ~ type + intervalTypePermute20*blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute20 + blockType|uniqueid),
+                data = df.trial.permuted, family = binomial(link="logit"))
+
+
+p = plot_model(model.acc,type = "pred", terms = c("intervalTypePermute20","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Accuracy")+ 
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+    scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+Acc = p
+
+Acc
+```
+
+
+### Response Time 
+
+#### Correct trials
+
+```{r}
+# Specific interaction
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalTypePermute20/blockType  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute20 + blockType|uniqueid),data = df.trial.permuted, REML = F)
+
+
+tab_model(model.accrt.,title = "RT - Trial Based")
+
+# Plot
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalTypePermute20 * blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute20 + blockType|uniqueid),data = df.trial.permuted, REML = F)
+
+
+p = plot_model(model.accrt.,type = "pred", terms = c("intervalTypePermute20","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Reaction times")+ 
+  ylab("log RT")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.ticks.length.x.left = unit(.25,"cm"),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+
+RT = p
+
+RT
+
+```
+
+#### Save
+
+```{r, message=FALSE}
+# cowplot::plot_grid(RT,Acc, ncol = 2)
+# 
+# ggsave("Exp1_Behavior.tiff", units="in", width=12, height=4, dpi=500, compression = 'lzw')
+
+```
+
+
+
+
+
+
+
+
+
+# 20% Permuted dataset
+
+
+## Task Data Analysis 
+
+### Accuracy 
+
+#### All errors 
+```{r}
+
+# Specific interaction
+model.acc = glmer(hit ~ type + intervalTypePermute30/(blockType) + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute30 + blockType|uniqueid),
+                data = df.trial.permuted, family = binomial(link="logit"))
+
+tab_model(model.acc,title = "Accuracy - Trial Based")
+
+model.acc = glmer(hit ~ type + intervalTypePermute30*blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute30 + blockType|uniqueid),
+                data = df.trial.permuted, family = binomial(link="logit"))
+
+
+p = plot_model(model.acc,type = "pred", terms = c("intervalTypePermute30","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Accuracy")+ 
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+    scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+Acc = p
+
+Acc
+```
+
+
+### Response Time 
+
+#### Correct trials
+
+```{r}
+# Specific interaction
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalTypePermute30/blockType  + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute30 + blockType|uniqueid),data = df.trial.permuted, REML = F)
+
+
+tab_model(model.accrt.,title = "RT - Trial Based")
+
+# Plot
+model.accrt. = lmer(log10_AccRT ~ Congruency + intervalTypePermute30 * blockType + scaledIntervalSessionNum + scaledIntervalLength + (1 + intervalTypePermute30 + blockType|uniqueid),data = df.trial.permuted, REML = F)
+
+
+p = plot_model(model.accrt.,type = "pred", terms = c("intervalTypePermute30","blockType"),colors = c(rgb(0.1, 0.1, 0.1),rgb(0.5, 0.5, 0.5)),dot.size = 2.5, line.size = 1.5,dodge = .3)
+
+
+p$labels$colour = "Block type"
+
+p = p + 
+  ggtitle("Reaction times")+ 
+  ylab("log RT")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed",
+     "Accuracy"), expand=c(0.3, 0.3))+
+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        # axis.ticks.length.x.left = unit(.25,"cm"),
+        # axis.text.x=element_blank(),
+        # axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"))
+
+
+RT = p
+
+RT
+
+```
+
+#### Save
+
+```{r, message=FALSE}
+# cowplot::plot_grid(RT,Acc, ncol = 2)
+# 
+# ggsave("Exp1_Behavior.tiff", units="in", width=12, height=4, dpi=500, compression = 'lzw')
+
+```
+
+
+
+
+
+

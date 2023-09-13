@@ -1,0 +1,4085 @@
+---
+title: "DDM results Experiment 1"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Loading libraries
+
+```{r, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(gridExtra)
+library(cowplot)
+library(sjPlot)
+library(RColorBrewer)
+library(knitr)
+library(data.table)
+library(brms)
+library(viridis)
+
+
+# Functions
+test.params <- function(df) {
+  inner_join(inner_join(inner_join(df %>%
+                                     map_dfr(mean) %>%
+                                     gather(parameter, estimate, everything()) %>% dplyr::rename(Mean=estimate),
+                                   df %>%
+                                     map_dfr(sd) %>%
+                                     gather(parameter, estimate, everything()) %>% dplyr::rename(SD=estimate),by='parameter'),
+                        
+                        df %>% map(~ .x > 0) %>% 
+                          map_dfr(mean) %>%
+                          gather(parameter, pvalue, everything()) %>%
+                          mutate(pvalue = if_else(round(pvalue)==1, 1-pvalue, pvalue),
+                                 sig = if_else(pvalue < 0.001, "***",
+                                               if_else(pvalue < 0.01, "**",
+                                                       if_else(pvalue < 0.05, "*", "n.s."))))),
+             inner_join(df %>%
+                          map_dfr(function(x) return(quantile(x,0.975)[[1]])) %>%
+                          gather(parameter, estimate, everything()) %>% dplyr::rename(CI_upper=estimate),
+                        df %>% map_dfr(function(x) return(quantile(x,0.025)[[1]])) %>%
+                          gather(parameter, estimate, everything()) %>% dplyr::rename(CI_lower=estimate),by='parameter'),by='parameter') 
+}
+
+# Define the summary posterior function
+summarize_posterior <- function(V1,V2,effect) {
+   post = as.data.frame(V1-V2)
+   ggplot(data=post,aes(x=`V1 - V2`)) + 
+     geom_histogram(bins=50) + 
+     geom_vline(xintercept=0, linetype="dotted",size=1) + 
+     labs(title=paste(effect,"p<0 = ",length(post[post<0])/length(post$`V1 - V2`))) +
+     theme_classic() 
+
+}
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+# Base template
+gg <- list(
+  theme_bw(),
+  theme(plot.title = element_text(hjust = 0.5, size=13),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.spacing = unit(0.75, "lines"),
+        legend.box.spacing = unit(0.5, "lines"),
+        legend.position = "bottom",
+        legend.margin = margin(c(0, 0, 0, 0), unit='lines'))
+)
+
+# Density template
+ggdensity <- list(
+  gg,
+  theme(panel.spacing = unit(0.25, "lines"),
+        legend.key.size = unit(0.7, "lines"),
+        legend.direction = "horizontal",
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        legend.box.spacing = unit(0.25, "lines"))
+)
+```
+
+
+
+
+
+
+
+# Main model - Interval type on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed1/modelMixed1_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed1/modelMixed1_traces.csv')
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 t_Intercept,
+                                 t_C.intervalType..Sum..S.Speed.)%>%
+                          
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.blockType..Sum..S.Fixed. =  0.5 * a_C.blockType..Sum..S.Fixed.,
+         a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = 0.5 * a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+         
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.blockType..Sum..S.Fixed. = v_C.blockType..Sum..S.Fixed.,
+         v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed1/modelMixed1_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,blockType)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+## Import the posteriors
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed1/modelMixed1_traces.csv')
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 t_Intercept,
+                                 t_C.intervalType..Sum..S.Speed.)%>%
+                          
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.blockType..Sum..S.Fixed. =  0.5 * a_C.blockType..Sum..S.Fixed.,
+         a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = 0.5 * a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+         
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.blockType..Sum..S.Fixed. = v_C.blockType..Sum..S.Fixed.,
+         v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)
+
+
+traces<-traces %>% dplyr::mutate(a_Fixed = a_Intercept + a_C.blockType..Sum..S.Fixed.,
+                                 a_Mixed = a_Intercept - a_C.blockType..Sum..S.Fixed.,
+
+                                 a_C.intervalType..Sum..S.Speed._Fixed = a_C.intervalType..Sum..S.Speed. + a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed._Mixed = a_C.intervalType..Sum..S.Speed. - a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+
+                                 v_Fixed = v_Intercept + v_C.blockType..Sum..S.Fixed.,
+                                 v_Mixed = v_Intercept - v_C.blockType..Sum..S.Fixed.,
+
+                                 v_C.intervalType..Sum..S.Speed._Fixed = v_C.intervalType..Sum..S.Speed. + v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed._Mixed = v_C.intervalType..Sum..S.Speed. - v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)
+
+
+traces<-traces %>% dplyr::mutate(a_Speed_Mixed = a_Mixed + a_C.intervalType..Sum..S.Speed._Mixed,
+                                 a_Speed_Fixed = a_Fixed + a_C.intervalType..Sum..S.Speed._Fixed,
+
+                                 a_Acc_Mixed = a_Mixed - a_C.intervalType..Sum..S.Speed._Mixed,
+                                 a_Acc_Fixed = a_Fixed - a_C.intervalType..Sum..S.Speed._Fixed,
+
+                                 v_Speed_Mixed = v_Mixed + v_C.intervalType..Sum..S.Speed._Mixed,
+                                 v_Speed_Fixed = v_Fixed + v_C.intervalType..Sum..S.Speed._Fixed,
+
+                                 v_Acc_Mixed = v_Mixed - v_C.intervalType..Sum..S.Speed._Mixed,
+                                 v_Acc_Fixed = v_Fixed - v_C.intervalType..Sum..S.Speed._Fixed,
+
+                                 t_Speed = t_Intercept + t_C.intervalType..Sum..S.Speed.,
+                                 t_Acc = t_Intercept - t_C.intervalType..Sum..S.Speed.)
+
+traces<-traces %>% dplyr::mutate(a_Diff_Mixed = a_Acc_Mixed - a_Speed_Mixed,
+                                 a_Diff_Fixed = a_Acc_Fixed - a_Speed_Fixed,
+
+                                 v_Diff_Mixed = v_Acc_Mixed - v_Speed_Mixed,
+                                 v_Diff_Fixed = v_Acc_Fixed - v_Speed_Fixed)
+
+### Difference between the conditions
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Diff_Mixed',
+                                                'v_Diff_Fixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_Diff_Mixed',
+                                                'a_Diff_Fixed'))
+
+NDT<- output %>% filter(parameter %in% c('t_Speed',
+                                         't_Acc'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Varying","Fixed","Varying","Fixed"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+```
+
+
+
+
+
+## Drift rate and threshold
+
+### Bar plot
+
+```{r, message=FALSE}
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,0.8)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+kable(va)
+
+
+# Threshold - difference between fixed and varying
+summarize_posterior(traces$a_Diff_Fixed, traces$a_Diff_Mixed, "Threshold - (Fixed:Acc-Speed) - (Mixed: Acc-Speed)")
+table = test.params(as.data.frame(traces$a_Diff_Fixed - traces$a_Diff_Mixed))
+table[1] = "Threshold (Fixed-Varying)"
+kable(table)
+
+# Drift rate - difference between fixed and varying
+summarize_posterior(traces$v_Diff_Fixed, traces$v_Diff_Mixed, "Drift - (Fixed:Acc-Speed) - (Mixed: Acc-Speed)")
+table = test.params(as.data.frame(traces$v_Diff_Fixed - traces$v_Diff_Mixed))
+table[1] = "Drift (Fixed-Varying)"
+kable(table)
+
+
+# Threshold - main effect of the condition type
+table = test.params(as.data.frame(c(traces$a_Diff_Fixed,traces$a_Diff_Mixed)))
+table[1] = "Threshold (Acc-Speed)"
+kable(table)
+
+# Drift - main effect of the condition type
+table = test.params(as.data.frame(c(traces$v_Diff_Fixed,traces$v_Diff_Mixed)))
+table[1] = "Drift (Acc-Speed)"
+kable(table)
+```
+
+
+### Points in 2D
+
+```{r, message=FALSE}
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Acc_Fixed',
+                                                'v_Acc_Mixed',
+                                                'v_Speed_Fixed',
+                                                'v_Speed_Mixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_Acc_Fixed',
+                                                'a_Acc_Mixed',
+                                                'a_Speed_Fixed',
+                                                'a_Speed_Mixed'))
+
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Varying","Fixed","Varying","Fixed","Varying","Fixed","Varying","Fixed"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+data = va
+
+data$parameter = c("Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = data, 
+            id_cols = c(factor,fixed),
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed", "Speed","Accuracy","Accuracy")
+
+data$factor = factor(data$factor, levels = c("Speed", "Accuracy"))
+levels(data$factor) = c("Speed", "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape = fixed)) +
+  geom_point(size=6) +
+  # geom_line(aes(group=fixed),linewidth=1, color="black")+
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(1.8,3.2))+
+  scale_y_continuous(limits = c(0.5,1.2))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+```
+
+
+
+## Stats
+
+### Speed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Mixed - traces$v_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("S Var - S Fix") + 
+  scale_x_continuous(limits = c(-0.4,0.4))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_V = p
+
+
+```
+
+### Speed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Mixed - traces$a_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("S Var - S Fix") + 
+  scale_x_continuous(limits = c(-0.2,0.2))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_A = p
+
+
+```
+
+
+
+### Accuracy (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Mixed - traces$v_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc Var - Acc Fix") + 
+  scale_x_continuous(limits = c(-0.4,0.4))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_V = p
+
+
+```
+
+### Accuracy (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Mixed - traces$a_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc Var - Acc Fix") + 
+  scale_x_continuous(limits = c(-0.2,0.2))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_A = p
+
+
+```
+
+
+## Non-decision time
+
+
+```{r, message=FALSE}
+
+# NDT
+NDT <- NDT %>% separate(parameter,c('parameter','factor'),'_')
+
+labels <- c('NDT')
+
+NDT$factor = as.factor(NDT$factor)
+
+NDT$parameter<-factor(NDT$parameter,labels=c('NDT'))
+
+# Plot
+PlotNDT<-ggplot(NDT,aes(x=parameter, y=Mean,fill=factor)) +
+  geom_bar(stat="identity", position=position_dodge(width = 0.5),width=0.5) +
+  geom_errorbar(width=.1, size=1, position=position_dodge(width = .5),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  ggtitle('NDT')+
+  # ylim(-0.2,0.5)+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) +
+  scale_x_discrete(labels= labels) +
+        scale_fill_manual(name="",values=c(rgb(0.6, 0.6, 0.6),rgb(0.8, 0.8, 0.8),rgb(0.7, 0.7, 0.7)))
+PlotNDT
+
+kable(NDT)
+
+# Differences Acc-Speed
+summarize_posterior(traces$t_Acc, traces$t_Speed, "NDT (Speed - Accuracy)")
+table = test.params(as.data.frame(traces$t_Acc - traces$t_Speed))
+table[1] = "NDT (Speed - Accuracy)"
+kable(table)
+
+```
+
+
+
+
+
+
+# Main model - Interval type x Block type on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed3/modelMixed3_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed3/modelMixed3_traces.csv')
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 t_Intercept,
+                                 t_C.intervalType..Sum..S.Speed.,
+                                 t_C.blockType..Sum..S.Fixed.,
+                                 t_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)%>%
+                          
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.blockType..Sum..S.Fixed. =  0.5 * a_C.blockType..Sum..S.Fixed.,
+         a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = 0.5 * a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+         
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.blockType..Sum..S.Fixed. = v_C.blockType..Sum..S.Fixed.,
+         v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed3/modelMixed3_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,blockType)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+## Import the posteriors
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed3/modelMixed3_traces.csv')
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 a_scaledRunningTime,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 v_C.congruency..Sum..S.incongruent.,
+                                 
+                                 t_Intercept,
+                                 t_C.intervalType..Sum..S.Speed.,
+                                 t_C.blockType..Sum..S.Fixed.,
+                                 t_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 z_C.congruency..Sum..S.incongruent.,
+                                 p_outlier)%>%
+                          
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_scaledRunningTime = 0.5 * a_scaledRunningTime,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.blockType..Sum..S.Fixed. =  0.5 * a_C.blockType..Sum..S.Fixed.,
+         a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = 0.5 * a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+         
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.blockType..Sum..S.Fixed. = v_C.blockType..Sum..S.Fixed.,
+         v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)
+
+
+traces<-traces %>% dplyr::mutate(a_Fixed = a_Intercept + a_C.blockType..Sum..S.Fixed.,
+                                 a_Mixed = a_Intercept - a_C.blockType..Sum..S.Fixed.,
+                                 
+                                 a_C.intervalType..Sum..S.Speed._Fixed = a_C.intervalType..Sum..S.Speed. + a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed._Mixed = a_C.intervalType..Sum..S.Speed. - a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 v_Fixed = v_Intercept + v_C.blockType..Sum..S.Fixed.,
+                                 v_Mixed = v_Intercept - v_C.blockType..Sum..S.Fixed.,
+                                 
+                                 v_C.intervalType..Sum..S.Speed._Fixed = v_C.intervalType..Sum..S.Speed. + v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed._Mixed = v_C.intervalType..Sum..S.Speed. - v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 t_Fixed = t_Intercept + t_C.blockType..Sum..S.Fixed.,
+                                 t_Mixed = t_Intercept - t_C.blockType..Sum..S.Fixed.,
+                                 
+                                 t_C.intervalType..Sum..S.Speed._Fixed = t_C.intervalType..Sum..S.Speed. + t_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 t_C.intervalType..Sum..S.Speed._Mixed = t_C.intervalType..Sum..S.Speed. - t_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)
+                                 
+
+traces<-traces %>% dplyr::mutate(a_Speed_Mixed = a_Mixed + a_C.intervalType..Sum..S.Speed._Mixed,
+                                 a_Speed_Fixed = a_Fixed + a_C.intervalType..Sum..S.Speed._Fixed,
+                                 
+                                 a_Acc_Mixed = a_Mixed - a_C.intervalType..Sum..S.Speed._Mixed,
+                                 a_Acc_Fixed = a_Fixed - a_C.intervalType..Sum..S.Speed._Fixed,
+                                 
+                                 v_Speed_Mixed = v_Mixed + v_C.intervalType..Sum..S.Speed._Mixed,
+                                 v_Speed_Fixed = v_Fixed + v_C.intervalType..Sum..S.Speed._Fixed,
+                                 
+                                 v_Acc_Mixed = v_Mixed - v_C.intervalType..Sum..S.Speed._Mixed,
+                                 v_Acc_Fixed = v_Fixed - v_C.intervalType..Sum..S.Speed._Fixed,
+                                 
+                                 t_Speed_Mixed = t_Mixed + t_C.intervalType..Sum..S.Speed._Mixed,
+                                 t_Speed_Fixed = t_Fixed + t_C.intervalType..Sum..S.Speed._Fixed,
+                                 
+                                 t_Acc_Mixed = t_Mixed - t_C.intervalType..Sum..S.Speed._Mixed,
+                                 t_Acc_Fixed = t_Fixed - t_C.intervalType..Sum..S.Speed._Fixed)
+
+traces<-traces %>% dplyr::mutate(a_Diff_Mixed = a_Acc_Mixed - a_Speed_Mixed,
+                                 a_Diff_Fixed = a_Acc_Fixed - a_Speed_Fixed,
+                                 
+                                 v_Diff_Mixed = v_Acc_Mixed - v_Speed_Mixed,
+                                 v_Diff_Fixed = v_Acc_Fixed - v_Speed_Fixed,
+                                 
+                                 t_Diff_Mixed = t_Acc_Mixed - t_Speed_Mixed,
+                                 t_Diff_Fixed = t_Acc_Fixed - t_Speed_Fixed)
+                                 
+### Difference between the conditions
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Diff_Mixed',
+                                                'v_Diff_Fixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_Diff_Mixed',
+                                                'a_Diff_Fixed'))
+
+NDT<- output %>% filter(parameter %in% c('t_Diff_Mixed',
+                                                't_Diff_Fixed'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Varying","Fixed","Varying","Fixed"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+```
+
+
+## Drift rate and threshold
+
+### Bar plot
+
+```{r, message=FALSE}
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,0.8)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+kable(va)
+
+
+# Threshold - difference between fixed and varying
+summarize_posterior(traces$a_Diff_Fixed, traces$a_Diff_Mixed, "Threshold - (Fixed:Acc-Speed) - (Mixed: Acc-Speed)")
+table = test.params(as.data.frame(traces$a_Diff_Fixed - traces$a_Diff_Mixed))
+table[1] = "Threshold (Fixed-Varying)"
+kable(table)
+
+# Drift rate - difference between fixed and varying
+summarize_posterior(traces$v_Diff_Fixed, traces$v_Diff_Mixed, "Drift - (Fixed:Acc-Speed) - (Mixed: Acc-Speed)")
+table = test.params(as.data.frame(traces$v_Diff_Fixed - traces$v_Diff_Mixed))
+table[1] = "Drift (Fixed-Varying)"
+kable(table)
+
+
+# Threshold - main effect of the condition type
+table = test.params(as.data.frame(c(traces$a_Diff_Fixed,traces$a_Diff_Mixed)))
+table[1] = "Threshold (Acc-Speed)"
+kable(table)
+
+# Drift - main effect of the condition type
+table = test.params(as.data.frame(c(traces$v_Diff_Fixed,traces$v_Diff_Mixed)))
+table[1] = "Drift (Acc-Speed)"
+kable(table)
+
+# Threshold - main effect of the block type
+table = test.params(as.data.frame(c(traces$a_Speed_Mixed,traces$a_Acc_Mixed) - c(traces$a_Speed_Fixed,traces$a_Acc_Fixed)))
+table[1] = "Threshold (Varying-Fixed)"
+kable(table)
+
+# Drift - main effect of the block type
+table = test.params(as.data.frame(c(traces$v_Speed_Mixed,traces$v_Acc_Mixed) - c(traces$v_Speed_Fixed,traces$v_Acc_Fixed)))
+table[1] = "Drift (Varying-Fixed)"
+kable(table)
+
+# NDT - main effect of the block type
+table = test.params(as.data.frame(c(traces$t_Speed_Mixed,traces$t_Acc_Mixed) - c(traces$t_Speed_Fixed,traces$t_Acc_Fixed)))
+table[1] = "NDT (Varying-Fixed)"
+kable(table)
+```
+
+
+### Points in 2D
+
+```{r, message=FALSE}
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Acc_Fixed',
+                                                'v_Acc_Mixed',
+                                                'v_Speed_Fixed',
+                                                'v_Speed_Mixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_Acc_Fixed',
+                                                'a_Acc_Mixed',
+                                                'a_Speed_Fixed',
+                                                'a_Speed_Mixed'))
+
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Varying","Fixed","Varying","Fixed","Varying","Fixed","Varying","Fixed"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+data = va
+
+data$parameter = c("Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = data, 
+            id_cols = c(factor,fixed),
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed", "Speed","Accuracy","Accuracy")
+
+data$factor = factor(data$factor, levels = c("Speed", "Accuracy"))
+levels(data$factor) = c("Speed", "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape = fixed)) +
+  geom_point(size=6) +
+  # geom_line(aes(group=fixed),linewidth=1, color="black")+
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(1.8,3.2))+
+  scale_y_continuous(limits = c(0.5,1.2))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+# NDT - difference between fixed and varying
+summarize_posterior(traces$t_Diff_Fixed, traces$t_Diff_Mixed, "NDT - (Fixed:Acc-Speed) - (Mixed: Acc-Speed)")
+table = test.params(as.data.frame(traces$t_Diff_Fixed - traces$t_Diff_Mixed))
+table[1] = "NDT (Fixed-Varying)"
+kable(table)
+
+
+# NDT - main effect of the condition type
+table = test.params(as.data.frame(c(traces$t_Diff_Fixed,traces$t_Diff_Mixed)))
+table[1] = "NDT (Acc-Speed)"
+kable(table)
+
+
+
+
+
+
+```
+
+
+
+## Stats
+
+### Speed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Mixed - traces$v_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("S Var - S Fix") + 
+  scale_x_continuous(limits = c(-0.4,0.4))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_V = p
+
+
+```
+
+### Speed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Mixed - traces$a_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("S Var - S Fix") + 
+  scale_x_continuous(limits = c(-0.2,0.2))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_A = p
+
+
+```
+
+
+
+### Accuracy (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Mixed - traces$v_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc Var - Acc Fix") + 
+  scale_x_continuous(limits = c(-0.4,0.4))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_V = p
+
+
+```
+
+### Accuracy (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Mixed - traces$a_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc Var - Acc Fix") + 
+  scale_x_continuous(limits = c(-0.2,0.2))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_A = p
+
+
+```
+
+
+## Non-decision time
+
+
+```{r, message=FALSE}
+
+# NDT
+
+ndt <- NDT %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+
+ndt$factor = as.factor(ndt$factor)
+
+ndt$fixed = as.factor(c("Varying","Fixed"))
+
+labels <- c('NDT')
+
+
+# Plot
+PlotNDT<-ggplot(ndt,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(stat="identity", position=position_dodge(width = 0.5),width=0.5) +
+  geom_errorbar(width=.1, size=1, position=position_dodge(width = .5),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  ggtitle('NDT')+
+  # ylim(-0.2,0.5)+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) +
+  scale_x_discrete(labels= labels) +
+        scale_fill_manual(name="",values=c(rgb(0.6, 0.6, 0.6),rgb(0.8, 0.8, 0.8),rgb(0.7, 0.7, 0.7)))
+PlotNDT
+
+kable(NDT)
+
+# Differences Acc-Speed
+summarize_posterior(traces$t_Acc, traces$t_Speed, "NDT (Speed - Accuracy)")
+table = test.params(as.data.frame(traces$t_Acc - traces$t_Speed))
+table[1] = "NDT (Speed - Accuracy)"
+kable(table)
+
+```
+
+
+
+
+
+
+# Main model - Intercept on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed4/modelMixed4_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed4/modelMixed4_traces.csv')
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 t)%>%
+                          
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.blockType..Sum..S.Fixed. =  0.5 * a_C.blockType..Sum..S.Fixed.,
+         a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = 0.5 * a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+         
+         v_Intercept = v_Intercept)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed4/modelMixed4_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,blockType)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+## Import the posteriors
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed4/modelMixed4_traces.csv')
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 a_scaledRunningTime,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 v_C.congruency..Sum..S.incongruent.,
+                                 
+                                 t,
+                                 z_C.congruency..Sum..S.incongruent.,
+                                 p_outlier,)%>%
+                          
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.blockType..Sum..S.Fixed. =  0.5 * a_C.blockType..Sum..S.Fixed.,
+         a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = 0.5 * a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+         a_scaledRunningTime = 0.5 * a_scaledRunningTime,
+         
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.blockType..Sum..S.Fixed. = v_C.blockType..Sum..S.Fixed.,
+         v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed. = v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)
+
+
+traces<-traces %>% dplyr::mutate(a_Fixed = mean(a_Intercept) + a_C.blockType..Sum..S.Fixed.,
+                                 a_Mixed = mean(a_Intercept) - a_C.blockType..Sum..S.Fixed.,
+                                 
+                                 a_C.intervalType..Sum..S.Speed._Fixed = a_C.intervalType..Sum..S.Speed. + a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed._Mixed = a_C.intervalType..Sum..S.Speed. - a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 
+                                 v_Fixed = mean(v_Intercept) + v_C.blockType..Sum..S.Fixed.,
+                                 v_Mixed = mean(v_Intercept) - v_C.blockType..Sum..S.Fixed.,
+                                 
+                                 v_C.intervalType..Sum..S.Speed._Fixed = v_C.intervalType..Sum..S.Speed. + v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed._Mixed = v_C.intervalType..Sum..S.Speed. - v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.)
+                                 
+
+traces<-traces %>% dplyr::mutate(a_Speed_Mixed = a_Mixed + a_C.intervalType..Sum..S.Speed._Mixed,
+                                 a_Speed_Fixed = a_Fixed + a_C.intervalType..Sum..S.Speed._Fixed,
+                                 
+                                 a_Acc_Mixed = a_Mixed - a_C.intervalType..Sum..S.Speed._Mixed,
+                                 a_Acc_Fixed = a_Fixed - a_C.intervalType..Sum..S.Speed._Fixed,
+                                 
+                                 v_Speed_Mixed = v_Mixed + v_C.intervalType..Sum..S.Speed._Mixed,
+                                 v_Speed_Fixed = v_Fixed + v_C.intervalType..Sum..S.Speed._Fixed,
+                                 
+                                 v_Acc_Mixed = v_Mixed - v_C.intervalType..Sum..S.Speed._Mixed,
+                                 v_Acc_Fixed = v_Fixed - v_C.intervalType..Sum..S.Speed._Fixed)
+
+traces<-traces %>% dplyr::mutate(a_Diff_Mixed = a_Acc_Mixed - a_Speed_Mixed,
+                                 a_Diff_Fixed = a_Acc_Fixed - a_Speed_Fixed,
+                                 
+                                 v_Diff_Mixed = v_Acc_Mixed - v_Speed_Mixed,
+                                 v_Diff_Fixed = v_Acc_Fixed - v_Speed_Fixed)
+                                 
+### Difference between the conditions
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Diff_Mixed',
+                                                'v_Diff_Fixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_Diff_Mixed',
+                                                'a_Diff_Fixed'))
+
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Varying","Fixed","Varying","Fixed"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+```
+
+
+
+
+## Parameter estimates
+
+```{r, message=FALSE}
+
+summary <- read.csv('output/Mixed/ae_only/modelMixed4/modelMixed4_traces.csv')
+
+summary<-summary %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.blockType..Sum..S.Fixed.,
+                                 a_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 a_scaledRunningTime,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.blockType..Sum..S.Fixed.,
+                                 v_C.intervalType..Sum..S.Speed..C.blockType..Sum..S.Fixed.,
+                                 v_C.congruency..Sum..S.incongruent.,
+                                 
+                                 t,
+                                 z_C.congruency..Sum..S.incongruent.,
+                                 p_outlier)
+summary <- test.params(summary)
+summary$CI_upper <- round(summary$CI_upper,2)
+summary$CI_lower <- round(summary$CI_lower,2)
+summary$CI <- paste0(summary$CI_lower,", ",summary$CI_upper)
+summary$Mean <- round(summary$Mean,2)
+summary$pvalue <- round(summary$pvalue,2)
+
+
+kable(summary)
+
+```
+
+## Drift rate and threshold
+
+### Bar plot
+
+```{r, message=FALSE}
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,0.8)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+kable(va)
+
+
+# Threshold - difference between fixed and varying
+summarize_posterior(traces$a_Diff_Fixed, traces$a_Diff_Mixed, "Threshold - (Fixed:Acc-Speed) - (Mixed: Acc-Speed)")
+table = test.params(as.data.frame(traces$a_Diff_Fixed - traces$a_Diff_Mixed))
+table[1] = "Threshold (Fixed-Varying)"
+kable(table)
+
+# Drift rate - difference between fixed and varying
+summarize_posterior(traces$v_Diff_Fixed, traces$v_Diff_Mixed, "Drift - (Fixed:Acc-Speed) - (Mixed: Acc-Speed)")
+table = test.params(as.data.frame(traces$v_Diff_Fixed - traces$v_Diff_Mixed))
+table[1] = "Drift (Fixed-Varying)"
+kable(table)
+
+
+# Threshold - main effect of the condition type
+table = test.params(as.data.frame(c(traces$a_Diff_Fixed,traces$a_Diff_Mixed)))
+table[1] = "Threshold (Acc-Speed)"
+kable(table)
+
+# Drift - main effect of the condition type
+table = test.params(as.data.frame(c(traces$v_Diff_Fixed,traces$v_Diff_Mixed)))
+table[1] = "Drift (Acc-Speed)"
+kable(table)
+
+# Threshold - main effect of the block type
+table = test.params(as.data.frame(c(traces$a_Speed_Mixed,traces$a_Acc_Mixed) - c(traces$a_Speed_Fixed,traces$a_Acc_Fixed)))
+table[1] = "Threshold (Varying-Fixed)"
+kable(table)
+
+# Drift - main effect of the block type
+table = test.params(as.data.frame(c(traces$v_Speed_Mixed,traces$v_Acc_Mixed) - c(traces$v_Speed_Fixed,traces$v_Acc_Fixed)))
+table[1] = "Drift (Varying-Fixed)"
+kable(table)
+```
+
+
+### Points in 2D
+
+```{r, message=FALSE}
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Acc_Fixed',
+                                                'v_Acc_Mixed',
+                                                'v_Speed_Fixed',
+                                                'v_Speed_Mixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_Acc_Fixed',
+                                                'a_Acc_Mixed',
+                                                'a_Speed_Fixed',
+                                                'a_Speed_Mixed'))
+
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Varying","Fixed","Varying","Fixed","Varying","Fixed","Varying","Fixed"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+data = va
+
+data$parameter = c("Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = data, 
+            id_cols = c(factor,fixed),
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed", "Speed","Accuracy","Accuracy")
+
+data$factor = factor(data$factor, levels = c("Speed", "Accuracy"))
+levels(data$factor) = c("Speed", "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape = fixed)) +
+  geom_point(size=6) +
+  # geom_line(aes(group=fixed),linewidth=1, color="black")+
+  geom_errorbar(width=0, linewidth=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, linewidth=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(2,3.3))+
+  scale_y_continuous(limits = c(0.5,1.4))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+Fig2.DDM = p
+
+
+
+
+```
+
+
+
+## Stats
+
+### Mini meta analysis
+
+
+```{r, message=FALSE}
+# Drift
+Acc_min_Speed_Fixed_V = traces$v_Acc_Fixed - traces$v_Speed_Fixed
+kable(test.params(as.data.frame(Acc_min_Speed_Fixed_V)))
+
+Acc_min_Speed_Varying_V = traces$v_Acc_Mixed - traces$v_Speed_Mixed
+kable(test.params(as.data.frame(Acc_min_Speed_Varying_V)))
+
+# interaction
+kable(test.params(as.data.frame(Acc_min_Speed_Fixed_V - Acc_min_Speed_Varying_V)))
+
+# Threshold
+Acc_min_Speed_Fixed_A = traces$a_Acc_Fixed - traces$a_Speed_Fixed
+kable(test.params(as.data.frame(Acc_min_Speed_Fixed_A)))
+
+Acc_min_Speed_Varying_A = traces$a_Acc_Mixed - traces$a_Speed_Mixed
+kable(test.params(as.data.frame(Acc_min_Speed_Varying_A)))
+# interaction
+kable(test.params(as.data.frame(Acc_min_Speed_Fixed_A - Acc_min_Speed_Varying_A)))
+
+
+# Distance
+Distance_Fixed = sqrt((traces$v_Acc_Fixed - traces$v_Speed_Fixed)**2 + (traces$a_Acc_Fixed - traces$a_Speed_Fixed)**2)
+Distance_Mixed = sqrt((traces$v_Acc_Mixed - traces$v_Speed_Mixed)**2 + (traces$a_Acc_Mixed - traces$a_Speed_Mixed)**2)
+Distance_Diff = Distance_Fixed - Distance_Mixed
+kable(test.params(as.data.frame(Distance_Diff)))
+
+```
+
+### Speed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Mixed - traces$v_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("S Var - S Fix") + 
+  scale_x_continuous(limits = c(-0.4,0.4))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_V = p
+
+
+```
+
+### Speed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Mixed - traces$a_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("S Var - S Fix") + 
+  scale_x_continuous(limits = c(-0.2,0.2))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_A = p
+
+
+```
+
+
+
+### Accuracy (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Mixed - traces$v_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc Var - Acc Fix") + 
+  scale_x_continuous(limits = c(-0.4,0.4))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_V = p
+
+
+```
+
+### Accuracy (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Mixed - traces$a_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc Var - Acc Fix") + 
+  scale_x_continuous(limits = c(-0.2,0.2))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_A = p
+
+
+```
+
+
+
+# Switch repeat model - Interval type on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed2/modelMixed2_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed2/modelMixed2_traces.csv')
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 t_Intercept,
+                                 t_C.intervalType..Sum..S.Speed.)%>%
+
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+         a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+         v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+
+## Correlation between fixed parameters
+
+
+```{r, message=FALSE}
+# traces <- read.csv('output/Mixed/ae_only/modelMixed2/modelMixed2_traces.csv')
+# 
+# traces<-traces %>% dplyr::select(a_Intercept,
+#                                  a_C.intervalType..Sum..S.Speed.,
+#                                  a_C.Switch..Sum..S.Switch.,
+#                                  a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#                                  v_Intercept,
+#                                  v_C.intervalType..Sum..S.Speed.,
+#                                  v_C.Switch..Sum..S.Switch.,
+#                                  v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#                                  t_Intercept,
+#                                  t_C.intervalType..Sum..S.Speed.)%>%
+# 
+#   mutate(a_Intercept = 0.5 * a_Intercept,
+#          a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+#          a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+#          a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#          v_Intercept = v_Intercept,
+#          v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+#          v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+#          v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+# 
+# 
+# 
+# # For each parameter
+# colNames= names(traces)
+# 
+# library(Hmisc)
+# library(corrplot)
+# 
+# corr_matrix <- rcorr(as.matrix(traces))
+# corr_matrix
+# 
+# corrplot(corr_matrix$r, p.mat = corr_matrix$P,tl.col = "black",insig = "p-value",type="lower")
+# corrplot(corr_matrix$r,tl.col = "black",type="lower")
+# 
+# 
+# plot(traces$v_C.Switch..Sum..S.Switch., traces$a_C.Switch..Sum..S.Switch.,xlim = c(- 0.1, 0.1),ylim = c(- 0.04, 0.04))
+# 
+# plot(traces$v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch., traces$a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,xlim = c(- 0.2, 0.2),ylim = c(- 0.02, 0.05))
+# 
+
+```
+
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed2/modelMixed2_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,Switch)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+
+## Import the posteriors
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed2/modelMixed2_traces.csv')
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 t_Intercept,
+                                 t_C.intervalType..Sum..S.Speed.)%>%
+
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+         a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+         v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+traces<-traces %>% dplyr::mutate(a_Repeat = a_Intercept - a_C.Switch..Sum..S.Switch.,
+                                 a_Switch = a_Intercept + a_C.Switch..Sum..S.Switch.,
+
+                                 a_C.intervalType..Sum..S.Speed._Repeat = a_C.intervalType..Sum..S.Speed. - a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed._Switch = a_C.intervalType..Sum..S.Speed. + a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Repeat = v_Intercept - v_C.Switch..Sum..S.Switch.,
+                                 v_Switch = v_Intercept + v_C.Switch..Sum..S.Switch.,
+
+                                 v_C.intervalType..Sum..S.Speed._Repeat = v_C.intervalType..Sum..S.Speed. - v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed._Switch = v_C.intervalType..Sum..S.Speed. + v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+traces<-traces %>% dplyr::mutate(a_Speed_Repeat = a_Repeat + a_C.intervalType..Sum..S.Speed._Repeat,
+                                 a_Speed_Switch = a_Switch + a_C.intervalType..Sum..S.Speed._Switch,
+
+                                 a_Acc_Repeat = a_Repeat - a_C.intervalType..Sum..S.Speed._Repeat,
+                                 a_Acc_Switch = a_Switch - a_C.intervalType..Sum..S.Speed._Switch,
+
+                                 v_Speed_Repeat = v_Repeat + v_C.intervalType..Sum..S.Speed._Repeat,
+                                 v_Speed_Switch = v_Switch + v_C.intervalType..Sum..S.Speed._Switch,
+
+                                 v_Acc_Repeat = v_Repeat - v_C.intervalType..Sum..S.Speed._Repeat,
+                                 v_Acc_Switch = v_Switch - v_C.intervalType..Sum..S.Speed._Switch,
+
+                                 t_Speed = t_Intercept + t_C.intervalType..Sum..S.Speed.,
+                                 t_Acc = t_Intercept - t_C.intervalType..Sum..S.Speed.)
+
+traces<-traces %>% dplyr::mutate(a_Diff_Repeat = a_Acc_Repeat - a_Speed_Repeat,
+                                 a_Diff_Switch = a_Acc_Switch - a_Speed_Switch,
+
+                                 v_Diff_Repeat = v_Acc_Repeat - v_Speed_Repeat,
+                                 v_Diff_Switch = v_Acc_Switch - v_Speed_Switch)
+```
+
+
+
+
+
+## Drift rate and threshold
+
+### Bar plot
+
+```{r, message=FALSE}
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Diff_Repeat',
+                                                'v_Diff_Switch'))
+
+threshold<- output %>% filter(parameter %in% c('a_Diff_Repeat',
+                                               'a_Diff_Switch'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','switch'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$switch = as.factor(c("Repeat","Switch","Repeat","Switch"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=switch)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,0.8)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))   
+
+p
+
+kable(va)
+
+# Differences Acc-Speed
+summarize_posterior(traces$a_Diff_Repeat, traces$a_Diff_Switch, "Threshold - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+kable(test.params(as.data.frame(traces$a_Diff_Repeat - traces$a_Diff_Switch)), caption = "Threshold - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+summarize_posterior(traces$v_Diff_Repeat, traces$v_Diff_Switch, "Drift - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+kable(test.params(as.data.frame(traces$v_Diff_Repeat - traces$v_Diff_Switch)), caption = "Drift - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+
+
+# Main effect of the condition type
+kable(test.params(as.data.frame(c(traces$a_Diff_Repeat,traces$a_Diff_Switch))))
+kable(test.params(as.data.frame(c(traces$v_Diff_Repeat,traces$v_Diff_Switch))))
+```
+
+### Points in 2D (Fixed and Varying)
+
+```{r, message=FALSE}
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Acc_Switch',
+                                                'v_Acc_Repeat',
+                                                'v_Speed_Switch',
+                                                'v_Speed_Repeat'))
+
+threshold<- output %>% filter(parameter %in% c('a_Acc_Switch',
+                                                'a_Acc_Repeat',
+                                                'a_Speed_Switch',
+                                                'a_Speed_Repeat'))
+
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Repeat","Switch","Repeat","Switch","Repeat","Switch","Repeat","Switch"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+data = va
+
+data$parameter = c("Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = data, 
+            id_cols = c(factor,fixed),
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed", "Speed","Accuracy","Accuracy")
+
+data$factor = factor(data$factor, levels = c("Speed", "Accuracy"))
+levels(data$factor) = c("Speed", "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape=fixed)) +
+  geom_point(size=6) +
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(1.8,3.2))+
+  scale_y_continuous(limits = c(0.5,1.2))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+```
+
+
+
+
+
+
+## Stats
+
+### Speed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Switch - traces$v_Speed_Repeat
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("S S - S R") + 
+  scale_x_continuous(limits = c(-0.3,0.3))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_V_Switch = p
+
+
+```
+
+### Speed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Switch - traces$a_Speed_Repeat
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("S S - S R") + 
+  scale_x_continuous(limits = c(-0.1,0.1))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_A_Switch = p
+
+
+```
+
+
+
+### Accuracy (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Switch - traces$v_Acc_Repeat
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc S - Acc R") + 
+  scale_x_continuous(limits = c(-0.3,0.3))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_V_Switch = p
+
+
+```
+
+### Accuracy (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Switch - traces$a_Acc_Repeat
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc S - Acc R") + 
+  scale_x_continuous(limits = c(-0.1,0.1))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_A_Switch = p
+
+
+```
+
+
+
+
+
+
+
+
+# Switch repeat model - Interval type x Block type on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed5/modelMixed5_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed5/modelMixed5_traces.csv')
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 t_Intercept,
+                                 t_C.intervalType..Sum..S.Speed.,
+                                 t_C.Switch..Sum..S.Switch.,
+                                 t_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)%>%
+
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+         a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+         v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+         
+         t_Intercept = t_Intercept,
+         t_C.intervalType..Sum..S.Speed. = t_C.intervalType..Sum..S.Speed.,
+         t_C.Switch..Sum..S.Switch. = t_C.Switch..Sum..S.Switch.,
+         t_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = t_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+
+## Correlation between fixed parameters
+
+
+```{r, message=FALSE}
+# traces <- read.csv('output/Mixed/ae_only/modelMixed2/modelMixed2_traces.csv')
+# 
+# traces<-traces %>% dplyr::select(a_Intercept,
+#                                  a_C.intervalType..Sum..S.Speed.,
+#                                  a_C.Switch..Sum..S.Switch.,
+#                                  a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#                                  v_Intercept,
+#                                  v_C.intervalType..Sum..S.Speed.,
+#                                  v_C.Switch..Sum..S.Switch.,
+#                                  v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#                                  t_Intercept,
+#                                  t_C.intervalType..Sum..S.Speed.)%>%
+# 
+#   mutate(a_Intercept = 0.5 * a_Intercept,
+#          a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+#          a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+#          a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#          v_Intercept = v_Intercept,
+#          v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+#          v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+#          v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+# 
+# 
+# 
+# # For each parameter
+# colNames= names(traces)
+# 
+# library(Hmisc)
+# library(corrplot)
+# 
+# corr_matrix <- rcorr(as.matrix(traces))
+# corr_matrix
+# 
+# corrplot(corr_matrix$r, p.mat = corr_matrix$P,tl.col = "black",insig = "p-value",type="lower")
+# corrplot(corr_matrix$r,tl.col = "black",type="lower")
+# 
+# 
+# plot(traces$v_C.Switch..Sum..S.Switch., traces$a_C.Switch..Sum..S.Switch.,xlim = c(- 0.1, 0.1),ylim = c(- 0.04, 0.04))
+# 
+# plot(traces$v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch., traces$a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,xlim = c(- 0.2, 0.2),ylim = c(- 0.02, 0.05))
+# 
+
+```
+
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed5/modelMixed5_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,Switch)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+
+## Import the posteriors
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed5/modelMixed5_traces.csv')
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 t_Intercept,
+                                 t_C.intervalType..Sum..S.Speed.,
+                                 t_C.Switch..Sum..S.Switch.,
+                                 t_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)%>%
+
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+         a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+         v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+         
+         t_Intercept = t_Intercept,
+         t_C.intervalType..Sum..S.Speed. = t_C.intervalType..Sum..S.Speed.,
+         t_C.Switch..Sum..S.Switch. = t_C.Switch..Sum..S.Switch.,
+         t_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = t_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+traces<-traces %>% dplyr::mutate(a_Repeat = a_Intercept - a_C.Switch..Sum..S.Switch.,
+                                 a_Switch = a_Intercept + a_C.Switch..Sum..S.Switch.,
+
+                                 a_C.intervalType..Sum..S.Speed._Repeat = a_C.intervalType..Sum..S.Speed. - a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed._Switch = a_C.intervalType..Sum..S.Speed. + a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Repeat = v_Intercept - v_C.Switch..Sum..S.Switch.,
+                                 v_Switch = v_Intercept + v_C.Switch..Sum..S.Switch.,
+
+                                 v_C.intervalType..Sum..S.Speed._Repeat = v_C.intervalType..Sum..S.Speed. - v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed._Switch = v_C.intervalType..Sum..S.Speed. + v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 
+                                 t_Repeat = t_Intercept - t_C.Switch..Sum..S.Switch.,
+                                 t_Switch = t_Intercept + t_C.Switch..Sum..S.Switch.,
+
+                                 t_C.intervalType..Sum..S.Speed._Repeat = t_C.intervalType..Sum..S.Speed. - v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 t_C.intervalType..Sum..S.Speed._Switch = t_C.intervalType..Sum..S.Speed. + t_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+traces<-traces %>% dplyr::mutate(a_Speed_Repeat = a_Repeat + a_C.intervalType..Sum..S.Speed._Repeat,
+                                 a_Speed_Switch = a_Switch + a_C.intervalType..Sum..S.Speed._Switch,
+
+                                 a_Acc_Repeat = a_Repeat - a_C.intervalType..Sum..S.Speed._Repeat,
+                                 a_Acc_Switch = a_Switch - a_C.intervalType..Sum..S.Speed._Switch,
+
+                                 v_Speed_Repeat = v_Repeat + v_C.intervalType..Sum..S.Speed._Repeat,
+                                 v_Speed_Switch = v_Switch + v_C.intervalType..Sum..S.Speed._Switch,
+
+                                 v_Acc_Repeat = v_Repeat - v_C.intervalType..Sum..S.Speed._Repeat,
+                                 v_Acc_Switch = v_Switch - v_C.intervalType..Sum..S.Speed._Switch,
+
+                                 t_Speed_Repeat = t_Repeat + t_C.intervalType..Sum..S.Speed._Repeat,
+                                 t_Speed_Switch = t_Switch + t_C.intervalType..Sum..S.Speed._Switch,
+
+                                 t_Acc_Repeat = t_Repeat - t_C.intervalType..Sum..S.Speed._Repeat,
+                                 t_Acc_Switch = t_Switch - t_C.intervalType..Sum..S.Speed._Switch)
+
+traces<-traces %>% dplyr::mutate(a_Diff_Repeat = a_Acc_Repeat - a_Speed_Repeat,
+                                 a_Diff_Switch = a_Acc_Switch - a_Speed_Switch,
+
+                                 v_Diff_Repeat = v_Acc_Repeat - v_Speed_Repeat,
+                                 v_Diff_Switch = v_Acc_Switch - v_Speed_Switch,
+                                 
+                                 t_Diff_Repeat = t_Acc_Repeat - t_Speed_Repeat,
+                                 t_Diff_Switch = t_Acc_Switch - t_Speed_Switch)
+```
+
+
+## Drift rate and threshold
+
+### Bar plot
+
+```{r, message=FALSE}
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Diff_Repeat',
+                                                'v_Diff_Switch'))
+
+threshold<- output %>% filter(parameter %in% c('a_Diff_Repeat',
+                                               'a_Diff_Switch'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','switch'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$switch = as.factor(c("Repeat","Switch","Repeat","Switch"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=switch)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,0.8)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))   
+
+p
+
+kable(va)
+
+# Differences Acc-Speed
+summarize_posterior(traces$a_Diff_Repeat, traces$a_Diff_Switch, "Threshold - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+kable(test.params(as.data.frame(traces$a_Diff_Repeat - traces$a_Diff_Switch)), caption = "Threshold - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+summarize_posterior(traces$v_Diff_Repeat, traces$v_Diff_Switch, "Drift - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+kable(test.params(as.data.frame(traces$v_Diff_Repeat - traces$v_Diff_Switch)), caption = "Drift - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+
+
+# Main effect of the condition type
+kable(test.params(as.data.frame(c(traces$a_Diff_Repeat,traces$a_Diff_Switch))))
+kable(test.params(as.data.frame(c(traces$v_Diff_Repeat,traces$v_Diff_Switch))))
+```
+
+### Points in 2D (Fixed and Varying)
+
+```{r, message=FALSE}
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Acc_Switch',
+                                                'v_Acc_Repeat',
+                                                'v_Speed_Switch',
+                                                'v_Speed_Repeat'))
+
+threshold<- output %>% filter(parameter %in% c('a_Acc_Switch',
+                                                'a_Acc_Repeat',
+                                                'a_Speed_Switch',
+                                                'a_Speed_Repeat'))
+
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Repeat","Switch","Repeat","Switch","Repeat","Switch","Repeat","Switch"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+data = va
+
+data$parameter = c("Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = data, 
+            id_cols = c(factor,fixed),
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed", "Speed","Accuracy","Accuracy")
+
+data$factor = factor(data$factor, levels = c("Speed", "Accuracy"))
+levels(data$factor) = c("Speed", "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape=fixed)) +
+  geom_point(size=6) +
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(1.8,3.2))+
+  scale_y_continuous(limits = c(0.5,1.2))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+
+```
+
+
+
+
+
+
+
+## NDT
+
+### Bar plot
+
+```{r, message=FALSE}
+output <- test.params(traces)
+
+ndt<- output %>% filter(parameter %in% c('t_Diff_Repeat',
+                                                't_Diff_Switch'))
+
+ndt <- ndt %>% separate(parameter,c('parameter','factor','switch'),'_')
+
+ndt$factor = as.factor(ndt$factor)
+
+ndt$switch = as.factor(c("Repeat","Switch"))
+
+ndt$parameter<-factor(ndt$parameter)
+
+# Plot
+p<-ggplot(ndt,aes(x=parameter, y=Mean,fill=switch)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,0.8)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))   
+
+p
+
+Fig2.DDM_Switch = p
+
+kable(ndt)
+
+# Differences Acc-Speed
+summarize_posterior(traces$t_Diff_Repeat, traces$t_Diff_Switch, "NDT - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+kable(test.params(as.data.frame(traces$t_Diff_Repeat - traces$t_Diff_Switch)), caption = "NDT - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+
+# Main effect of the condition type
+kable(test.params(as.data.frame(c(traces$t_Diff_Repeat,traces$t_Diff_Switch))))
+```
+
+
+## Stats
+
+### Speed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Switch - traces$v_Speed_Repeat
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("S S - S R") + 
+  scale_x_continuous(limits = c(-0.3,0.3))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_V_Switch = p
+
+
+```
+
+### Speed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Switch - traces$a_Speed_Repeat
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("S S - S R") + 
+  scale_x_continuous(limits = c(-0.1,0.1))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_A_Switch = p
+
+
+```
+
+
+
+### Accuracy (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Switch - traces$v_Acc_Repeat
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc S - Acc R") + 
+  scale_x_continuous(limits = c(-0.3,0.3))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_V_Switch = p
+
+
+```
+
+### Accuracy (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Switch - traces$a_Acc_Repeat
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc S - Acc R") + 
+  scale_x_continuous(limits = c(-0.1,0.1))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_A_Switch = p
+
+
+```
+
+
+
+
+
+
+
+
+
+# Switch repeat model - Interept on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed6/modelMixed6_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed6/modelMixed6_traces.csv')
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 t)%>%
+
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+         a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+         v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+
+## Correlation between fixed parameters
+
+
+```{r, message=FALSE}
+# traces <- read.csv('output/Mixed/ae_only/modelMixed2/modelMixed2_traces.csv')
+# 
+# traces<-traces %>% dplyr::select(a_Intercept,
+#                                  a_C.intervalType..Sum..S.Speed.,
+#                                  a_C.Switch..Sum..S.Switch.,
+#                                  a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#                                  v_Intercept,
+#                                  v_C.intervalType..Sum..S.Speed.,
+#                                  v_C.Switch..Sum..S.Switch.,
+#                                  v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#                                  t_Intercept,
+#                                  t_C.intervalType..Sum..S.Speed.)%>%
+# 
+#   mutate(a_Intercept = 0.5 * a_Intercept,
+#          a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+#          a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+#          a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+# 
+#          v_Intercept = v_Intercept,
+#          v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+#          v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+#          v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+# 
+# 
+# 
+# # For each parameter
+# colNames= names(traces)
+# 
+# library(Hmisc)
+# library(corrplot)
+# 
+# corr_matrix <- rcorr(as.matrix(traces))
+# corr_matrix
+# 
+# corrplot(corr_matrix$r, p.mat = corr_matrix$P,tl.col = "black",insig = "p-value",type="lower")
+# corrplot(corr_matrix$r,tl.col = "black",type="lower")
+# 
+# 
+# plot(traces$v_C.Switch..Sum..S.Switch., traces$a_C.Switch..Sum..S.Switch.,xlim = c(- 0.1, 0.1),ylim = c(- 0.04, 0.04))
+# 
+# plot(traces$v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch., traces$a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,xlim = c(- 0.2, 0.2),ylim = c(- 0.02, 0.05))
+# 
+
+```
+
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed6/modelMixed6_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,Switch)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+
+## Import the posteriors
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed6/modelMixed6_traces.csv')
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 t)%>%
+
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+         a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+         v_Intercept = v_Intercept,
+         v_C.intervalType..Sum..S.Speed. = v_C.intervalType..Sum..S.Speed.,
+         v_C.Switch..Sum..S.Switch. = v_C.Switch..Sum..S.Switch.,
+         v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+traces<-traces %>% dplyr::mutate(a_Repeat = mean(a_Intercept) - a_C.Switch..Sum..S.Switch.,
+                                 a_Switch = mean(a_Intercept) + a_C.Switch..Sum..S.Switch.,
+
+                                 a_C.intervalType..Sum..S.Speed._Repeat = a_C.intervalType..Sum..S.Speed. - a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed._Switch = a_C.intervalType..Sum..S.Speed. + a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+
+                                 v_Repeat = mean(v_Intercept) - v_C.Switch..Sum..S.Switch.,
+                                 v_Switch = mean(v_Intercept) + v_C.Switch..Sum..S.Switch.,
+
+                                 v_C.intervalType..Sum..S.Speed._Repeat = v_C.intervalType..Sum..S.Speed. - v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed._Switch = v_C.intervalType..Sum..S.Speed. + v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+
+traces<-traces %>% dplyr::mutate(a_Speed_Repeat = a_Repeat + a_C.intervalType..Sum..S.Speed._Repeat,
+                                 a_Speed_Switch = a_Switch + a_C.intervalType..Sum..S.Speed._Switch,
+
+                                 a_Acc_Repeat = a_Repeat - a_C.intervalType..Sum..S.Speed._Repeat,
+                                 a_Acc_Switch = a_Switch - a_C.intervalType..Sum..S.Speed._Switch,
+
+                                 v_Speed_Repeat = v_Repeat + v_C.intervalType..Sum..S.Speed._Repeat,
+                                 v_Speed_Switch = v_Switch + v_C.intervalType..Sum..S.Speed._Switch,
+
+                                 v_Acc_Repeat = v_Repeat - v_C.intervalType..Sum..S.Speed._Repeat,
+                                 v_Acc_Switch = v_Switch - v_C.intervalType..Sum..S.Speed._Switch)
+
+traces<-traces %>% dplyr::mutate(a_Diff_Repeat = a_Acc_Repeat - a_Speed_Repeat,
+                                 a_Diff_Switch = a_Acc_Switch - a_Speed_Switch,
+
+                                 v_Diff_Repeat = v_Acc_Repeat - v_Speed_Repeat,
+                                 v_Diff_Switch = v_Acc_Switch - v_Speed_Switch)
+```
+
+
+
+## Parameter estimates
+
+```{r, message=FALSE}
+
+summary <- read.csv('output/Mixed/ae_only/modelMixed6/modelMixed6_traces.csv')
+summary<-summary %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Sum..S.Speed.,
+                                 a_C.Switch..Sum..S.Switch.,
+                                 a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 a_scaledRunningTime,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Sum..S.Speed.,
+                                 v_C.Switch..Sum..S.Switch.,
+                                 v_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.,
+                                 v_C.congruency..Sum..S.incongruent.,
+                                 
+                                 t,
+                                 z_C.congruency..Sum..S.incongruent.,
+                                 p_outlier)%>%
+
+  mutate(a_Intercept = 0.5 * a_Intercept,
+         a_C.intervalType..Sum..S.Speed. =  0.5 * a_C.intervalType..Sum..S.Speed.,
+         a_C.Switch..Sum..S.Switch. =  0.5 * a_C.Switch..Sum..S.Switch.,
+         a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch. = 0.5 * a_C.intervalType..Sum..S.Speed..C.Switch..Sum..S.Switch.)
+
+summary <- test.params(summary)
+summary$CI_upper <- round(summary$CI_upper,2)
+summary$CI_lower <- round(summary$CI_lower,2)
+summary$CI <- paste0(summary$CI_lower,", ",summary$CI_upper)
+summary$Mean <- round(summary$Mean,2)
+summary$pvalue <- round(summary$pvalue,2)
+
+
+kable(summary)
+
+```
+
+## Drift rate and threshold
+
+### Bar plot
+
+```{r, message=FALSE}
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Diff_Repeat',
+                                                'v_Diff_Switch'))
+
+threshold<- output %>% filter(parameter %in% c('a_Diff_Repeat',
+                                               'a_Diff_Switch'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','switch'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$switch = as.factor(c("Repeat","Switch","Repeat","Switch"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=switch)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,0.8)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))   
+
+p
+
+
+kable(va)
+
+# Differences Acc-Speed
+summarize_posterior(traces$a_Diff_Repeat, traces$a_Diff_Switch, "Threshold - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+kable(test.params(as.data.frame(traces$a_Diff_Repeat - traces$a_Diff_Switch)), caption = "Threshold - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+summarize_posterior(traces$v_Diff_Repeat, traces$v_Diff_Switch, "Drift - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+kable(test.params(as.data.frame(traces$v_Diff_Repeat - traces$v_Diff_Switch)), caption = "Drift - (Repeat:Acc-Speed) - (Switch: Acc-Speed)")
+
+
+# Main effect of the condition type
+kable(test.params(as.data.frame(c(traces$a_Diff_Repeat,traces$a_Diff_Switch))))
+kable(test.params(as.data.frame(c(traces$v_Diff_Repeat,traces$v_Diff_Switch))))
+
+# Main effect of the block type
+kable(test.params(as.data.frame(c(traces$a_Speed_Switch,traces$a_Acc_Switch) - c(traces$a_Speed_Repeat,traces$a_Acc_Repeat))))
+kable(test.params(as.data.frame(c(traces$v_Speed_Switch,traces$v_Acc_Switch) - c(traces$v_Speed_Repeat,traces$v_Acc_Repeat))))
+```
+
+### Points in 2D (Fixed and Varying)
+
+```{r, message=FALSE}
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Acc_Switch',
+                                                'v_Acc_Repeat',
+                                                'v_Speed_Switch',
+                                                'v_Speed_Repeat'))
+
+threshold<- output %>% filter(parameter %in% c('a_Acc_Switch',
+                                                'a_Acc_Repeat',
+                                                'a_Speed_Switch',
+                                                'a_Speed_Repeat'))
+
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(c("Repeat","Switch","Repeat","Switch","Repeat","Switch","Repeat","Switch"))
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+data = va
+
+data$parameter = c("Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = data, 
+            id_cols = c(factor,fixed),
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed", "Speed","Accuracy","Accuracy")
+
+data$factor = factor(data$factor, levels = c("Speed", "Accuracy"))
+levels(data$factor) = c("Speed", "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape=fixed)) +
+  geom_point(size=6) +
+  geom_errorbar(width=0, linewidth=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, linewidth=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(2,3.3))+
+  scale_y_continuous(limits = c(0.5,1.4))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+Fig2.DDM_Switch = p
+
+
+
+```
+
+
+
+
+
+
+## Stats
+
+### Speed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Switch - traces$v_Speed_Repeat
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("S S - S R") + 
+  scale_x_continuous(limits = c(-0.3,0.3))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_V_Switch = p
+
+
+```
+
+### Speed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Switch - traces$a_Speed_Repeat
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Speed_Goal,aes(x=Speed_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("S S - S R") + 
+  scale_x_continuous(limits = c(-0.1,0.1))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Speed_A_Switch = p
+
+
+```
+
+
+
+### Accuracy (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Switch - traces$v_Acc_Repeat
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Drift rate difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc S - Acc R") + 
+  scale_x_continuous(limits = c(-0.3,0.3))+
+  scale_y_continuous(limits = c(0,2200),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_V_Switch = p
+
+
+```
+
+### Accuracy (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Switch - traces$a_Acc_Repeat
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (switch vs. repeat)")
+
+
+# Plot
+p = ggplot(data=Accuracy_Goal,aes(x=Accuracy_Goal)) + 
+  geom_histogram(bins = 30,fill="transparent",color="black") + 
+  geom_vline(xintercept=0,size=1) +
+  xlab("Threshold difference") + 
+  ylab("Frequency") + 
+  ggtitle("Acc S - Acc R") + 
+  scale_x_continuous(limits = c(-0.1,0.1))+
+  scale_y_continuous(limits = c(0,2500),expand = c(0,0))+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.30, 0.85),
+        legend.background = element_rect(fill = "transparent", color = NA)) 
+
+p
+
+
+Fig2.DDM_Diff_Acc_A_Switch = p
+
+
+```
+
+
+
+
+
+
+
+
+
+
+# Simulations
+
+
+
+## Import the data
+
+### Import
+
+```{r, message=FALSE}
+# Import, tidy, and merge the simulations data
+sim_data = read.csv("../model_simulations/Experiment1.csv")
+sim_data_switch = read.csv("../model_simulations/Experiment1_Switch.csv")
+
+# Change condition names
+sim_data$condition = ifelse(sim_data$condition==0,"Speed","Accuracy")
+sim_data_switch$condition = ifelse(sim_data_switch$condition==0,"Speed","Accuracy")
+
+# Change variable names
+colnames(sim_data) = c("factor","fixed","Mean_Drift","Mean_Threshold","v_star","a_star")
+colnames(sim_data_switch) = c("factor","fixed","Mean_Drift","Mean_Threshold","v_star","a_star")
+
+# Order the factor
+sim_data$factor = factor(sim_data$factor,levels = c("Speed", "Accuracy"))
+sim_data_switch$factor = factor(sim_data_switch$factor,levels = c("Speed", "Accuracy"))
+
+
+```
+
+### Summary table
+
+```{r, message=FALSE}
+
+
+kable(sim_data)
+kable(sim_data_switch)
+
+```
+
+## Plot
+
+
+```{r, message=FALSE}
+
+# Fixed vs. varying blocks
+p<-ggplot(sim_data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape=fixed)) +
+  geom_point(size=6) +
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(2,3.3))+
+  scale_y_continuous(limits = c(0.5,1.4))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+Fig2.DDM_sim = p
+
+# Switch vs. repeat
+p<-ggplot(sim_data_switch,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape=fixed)) +
+  geom_point(size=6) +
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(2,3.3))+
+  scale_y_continuous(limits = c(0.5,1.4))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+Fig2.DDM_sim_Switch = p
+
+```
+
+
+
+# Save the figures
+
+
+```{r, message=FALSE}
+
+# Save the figure
+pdf(file="../../../Manuscript/figures/Figure_2_DDM&Sim.pdf",height=12,width=12)
+
+p = cowplot::plot_grid(Fig2.DDM_sim,
+                       Fig2.DDM,
+                       Fig2.DDM_sim_Switch,
+                       Fig2.DDM_Switch,
+                       nrow = 2,
+                       ncol = 2)
+p
+dev.off()
+
+
+
+
+```
+

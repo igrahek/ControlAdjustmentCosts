@@ -1,0 +1,349 @@
+#### About the code ####
+
+# Pre-processing script for Experiment 1 of the reconfiguration costs project. 
+# Code written by: Ivan Grahek (2021), 
+
+#### Clear environment, the paths, and criteria ####
+
+# clear the environment
+rm(list=ls()) 
+#load packages and install them if they're not installed
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse,psych)
+
+# set seed
+set.seed(42) 
+
+# Critera for Exclusion 
+thresh_minIntervals_performed = 64  # Total intervals = 80, threshold is 80 % 
+thresh_minBlocks_performed = 13      # Total blocks per condition = 10
+thresh_maxRT_performed = 3000       # Max RT (ms)
+thresh_minRT_performed = 250        # Min RT (ms)
+thresh_meanAcc_subj = .6
+thresh_quiz_mistakes = 10           # Exclude if there are more than 10 errors for any of the quizzes
+
+# Data scrubbing variables
+task_ISI = 250                      # constant variable set in task
+
+#### Import the data ####
+
+# Load in the behavioral data
+df.trial.raw = read.csv('../data/RawData/Version5/2022-10-28_1.0/trialdata_reconf_freq_2022-10-28.csv')
+
+df.trial = df.trial.raw %>%
+  separate(col = uniqueid, sep = ":", c("SubID","Version"), remove = FALSE) 
+
+#Load in the demographics data
+data.prolific = read.csv("../data/RawData/Version5/2022-10-28_1.0/prolific_export_6352bfef1ee58560644ce493.csv")
+
+
+# Load in the attention quiz data
+df.quiz = read.csv('../data/RawData/Version5/2022-10-28_1.0/questiondata_reconf_freq_2022-10-28.csv') %>% 
+  separate(col = uniqueid, sep = ":", c("SubID","Version"), remove = FALSE) %>%
+  filter(uniqueid %in% df.trial$uniqueid)
+
+# Filter by incorrect
+df.quizPassed = df.quiz %>% 
+  dplyr::select(uniqueid,incorrectC1,incorrectC2) %>%
+  mutate_at(
+    vars(incorrectC1:incorrectC2),as.numeric) %>%
+  filter(incorrectC1 < thresh_quiz_mistakes, incorrectC2 < thresh_quiz_mistakes)
+
+
+#### Exclude subjects based on the attention checks and the order of the tasks in the battery ####
+
+StartNParticipants = length(unique(df.trial$SubID))
+
+# Subjects to exclude, automatically excludes if more than 2000 trials per subject. 
+sub.trials<-data.frame(table(df.trial.raw$uniqueid))
+sub.exclude<-sub.trials %>%
+  filter(Freq>2000)
+
+colnames(sub.exclude)[1] = "uniqueid"
+
+ExcludeTooManyResponses = StartNParticipants-length(unique(df.trial$uniqueid))
+
+StartNParticipants = length(unique(df.trial$SubID))
+
+# Remove the people who haven't passed the quizzes and remove the rows with NAs in trial numbers
+df.trial <- df.trial %>%
+  filter(uniqueid %in% df.quizPassed$uniqueid) %>% 
+  filter(!is.na(trialNum))
+
+# Create Running Time Variable 
+df.trial <- df.trial %>% 
+  group_by(SubID,blockNum,intervalNum)%>% 
+  mutate(ISI=ifelse(trialNum==1,0,250),
+         trialPlusISI= rt+ISI,
+         runningTime=cumsum(ifelse(trialNum==1,0,lag(trialPlusISI))),
+         runningTimeLeft= intervalLength-runningTime)%>% 
+  ungroup(SubID,blockNum,intervalNum)%>% 
+  mutate(scaledRunningTime=scale(runningTime, center = TRUE))
+
+# Remove the fast/slow RTs and remove the subjects with too many responses
+df.trial <- df.trial %>%
+  filter(rt>thresh_minRT_performed)%>%
+  filter(rt<thresh_maxRT_performed)%>%
+  dplyr::select(-c('initrt','phase','moneyEarned')) %>% 
+  filter(!uniqueid %in% sub.exclude) 
+
+ExcludeQuiz = StartNParticipants - length(unique(df.trial$uniqueid))
+
+
+#### Re-arrange the data ####
+
+# Fix the blockType naming
+df.trial$blockType = ifelse(df.trial$blockType=="Speed","Fixed",df.trial$blockType)
+df.trial$blockType = ifelse(df.trial$blockType=="Accuracy","Fixed",df.trial$blockType)
+
+
+# Create vector of trial number for each subject's session
+tmp.trialdata<-df.trial %>% group_by(SubID) %>% 
+  dplyr::summarise(numtrials=n(), .groups="keep")
+
+df.trialNew<-data.frame()
+for (subject in 1:length(unique(tmp.trialdata$SubID))) {
+  
+  #Plotting
+  plot_data = subset(df.trial,df.trial$SubID == unique(tmp.trialdata$SubID)[subject])
+  
+  plot_data<-plot_data  %>% 
+    dplyr::mutate(wholesessionTrialNum = row_number())
+  df.trialNew<-rbind(df.trialNew,plot_data)
+  
+}
+
+df.trial = df.trialNew
+
+# Create additional variables and reorganize experimental factors
+df.trial = df.trial %>% 
+  mutate(AccRT=ifelse(hit==1,rt,NaN),
+         ErrRT=ifelse(hit==0,rt,NaN),
+         type=droplevels(factor(type)),
+         congruence=as.numeric(type=='congruent'), # 1=congruent, 0=incongruent
+         prevCongruence=head(c(c(NA),congruence),-1),
+         prevHit=head(c(c(NA),hit),-1),
+         IntervalsPerBlock = max(unique(intervalNum)),
+         IntervalSessionNum = IntervalsPerBlock*(blockNum-1) + intervalNum,
+         TrialSessionNum = wholesessionTrialNum,
+         scaledIntervalSessionNum = scale(IntervalSessionNum, center = TRUE,scale = TRUE),
+         scaledTrialSessionNum = scale(TrialSessionNum, center = TRUE, scale = TRUE),
+         scaledIntervalBlockNum = scale(intervalNum, center = TRUE,scale = TRUE),
+         scaledTrialIntervalNum = scale(trialNum, center = TRUE, scale = TRUE),
+         scaledIntervalLength = scale(intervalLength, center = TRUE, scale = TRUE),
+         log10_AccRT=log10(AccRT),
+         log10_ErrRT=log10(ErrRT),
+         scaled_log10_AccRT=scale(log10_AccRT, center = TRUE, scale = TRUE),
+         lowerWord=tolower(distractor),
+         ErrorType=case_when(
+           hit==0 & response!=lowerWord~ "random",
+           hit==0 & response==lowerWord ~ "automatic",
+           hit==1~ "NoError"),
+         AutomaticError=ifelse(ErrorType=="automatic",1,0),
+         RandomError=ifelse(ErrorType=="random",1,0),
+         AnyError=ifelse(ErrorType=="random",1,ifelse(ErrorType=="automatic",1,0))
+  )
+
+
+df.trial <- df.trial %>%
+  group_by(SubID,blockNum,intervalType) %>%
+  mutate("cm_AutomaticError" = cumsum(AutomaticError),
+         "cm_RandomError" = cumsum(RandomError),
+         "cm_AnyError" = cumsum(AnyError))%>%
+  ungroup(SubID,blockNum,intervalType)
+
+df.trial <- df.trial %>%
+  group_by(SubID) %>%
+  mutate("scaledcm_AutomaticError" = scale(cm_AutomaticError, center = TRUE, scale = TRUE),
+         "scaledcm_RandomError" = scale(cm_RandomError , center = TRUE, scale = TRUE),
+         "scaledcm_AnyError" = scale(cm_AnyError, center = TRUE, scale = TRUE))%>%
+  ungroup(SubID)
+
+
+#### Exclude subjects based on interval-level data ####
+
+# Format data frame for interval-level data to do exclusion at the interval level
+df.interval <- df.trial %>% 
+  group_by(uniqueid,SubID,Version,blockNum,intervalNum,intervalLength,intervalType) %>% 
+  dplyr::summarise(trialsPerInterval = n(),
+                   IntervalISI = (trialsPerInterval-1)*task_ISI, # Calculate Total ISI per interval 
+                   Interval_Acc=mean(hit,na.rm=T),
+                   Interval_sum_Acc=sum(hit,na.rm=T), 
+                   Interval_AccRT=mean(AccRT,na.rm=T),
+                   Interval_devAccRT=((AccRT-Interval_AccRT)/Interval_AccRT),
+                   Interval_log10_AccRT=mean(log10_AccRT,na.rm=T),
+                   Interval_RT=mean(rt,na.rm=T),
+                   Interval_Congruence=mean(congruence,na.rm=T), 
+                   scaledIntervalSessionNum = mean(scaledIntervalSessionNum),
+                   scaledIntervalBlockNum = mean(scaledIntervalBlockNum),
+                   scaledIntervalLength = mean(scaledIntervalLength), 
+                   .groups="keep") %>% ungroup() %>%
+  mutate(Interval_norm_sum_Acc=((Interval_sum_Acc)/(intervalLength-IntervalISI))*1000, 
+         scaledIntervalCong = scale(Interval_Congruence, center = TRUE, scale = TRUE), 
+         scale_Interval_log10_AccRT=scale(Interval_log10_AccRT, center = TRUE, scale = TRUE)) %>%
+  filter(abs(scale_Interval_log10_AccRT) < 3,Interval_Congruence<=0.6)
+
+# Add the previous interval type variable
+df.interval.previous = df.interval %>%
+  group_by(uniqueid,SubID,Version,blockNum,intervalNum) %>%
+  dplyr::summarise(intervalType = first(intervalType), n = n())%>%
+  dplyr::arrange(intervalNum, .by_group = TRUE) %>%
+  dplyr::mutate(previntervalType = dplyr::lag(intervalType)) 
+
+# Add switch repeat variable
+df.interval.previous$Switch = ifelse(df.interval.previous$intervalType==df.interval.previous$previntervalType,"Repeat","Switch")
+
+# Merge with trial data
+df.trial = plyr::join(df.trial,df.interval.previous, by = c("SubID", "blockNum", "intervalNum"),type="full")
+
+# Take the interval data
+df.interval.switch = df.trial %>%
+  group_by(SubID,blockNum,intervalNum,blockType) %>%
+  dplyr::summarise(intervalType = first(intervalType), n = n())%>%
+  dplyr::arrange(intervalNum, .by_group = TRUE)
+
+# Make a new variable with the number of switches
+df.interval.switch = df.interval.switch %>%
+  mutate(NSwitches = recode(blockType,"2intervals" = 2,"4intervals"=4,"8intervals"=8,"Accuracy"=0,"Speed"=0))
+
+# Make a new variable of the number of intervals since the switch
+df.interval.switch = df.interval.switch %>%
+  group_by(SubID,blockNum,intervalNum,blockType) %>%
+  dplyr::mutate(SinceSwitch = intervalNum %% unique(NSwitches))
+
+# Replace the 0s
+df.interval.switch$SinceSwitch[df.interval.switch$SinceSwitch==0 & df.interval.switch$blockType=="2intervals"] = 2
+df.interval.switch$SinceSwitch[df.interval.switch$SinceSwitch==0 & df.interval.switch$blockType=="4intervals"] = 4
+df.interval.switch$SinceSwitch[df.interval.switch$SinceSwitch==0 & df.interval.switch$blockType=="8intervals"] = 8
+
+# Merge with trial data
+df.trial = plyr::join(df.trial,df.interval.switch, by = c("SubID", "blockNum", "intervalNum"),type="full")
+
+
+
+# Summarize data by subject and check who we should go back to exclude at the subject level 
+df.summary <- df.interval %>% 
+  group_by(uniqueid) %>% 
+  dplyr::summarise(Interval_Acc_subj=mean(Interval_Acc,na.rm=T),
+                   Interval_RT_subj=mean(Interval_AccRT,na.rm=T),
+                   nInterval=length(Interval_Acc), .groups="keep") %>%
+  dplyr::filter(Interval_Acc_subj<thresh_meanAcc_subj,
+                Interval_RT_subj>thresh_maxRT_performed,
+                nInterval<thresh_minIntervals_performed) %>% ungroup()
+
+df.summary.block <-  df.interval %>% 
+  group_by(uniqueid,intervalType) %>% 
+  dplyr::summarise(Interval_Acc_subj=mean(Interval_Acc,na.rm=T),
+                   Interval_RT_subj=mean(Interval_AccRT,na.rm=T),
+                   nInterval=length(Interval_Acc),
+                   Interval_norm_sum_Acc = mean(Interval_norm_sum_Acc), 
+                   .groups="keep") %>%
+  dplyr::filter(Interval_Acc_subj<thresh_meanAcc_subj,
+                Interval_RT_subj>thresh_maxRT_performed,
+                nInterval<thresh_minBlocks_performed) %>% ungroup()
+
+PreIntervalExclusionN = length(unique(df.trial$uniqueid))
+
+# Exclude the subjects with low accuracy, low number of blocks performed, or very long RTs
+df.trial = df.trial %>%
+  filter(!uniqueid %in% df.summary$uniqueid)
+
+ExcludeIntervalLevel = PreIntervalExclusionN - length(unique(df.trial$uniqueid))
+
+
+
+#### Exclude subjects based on accuracy  ####
+
+summary_table =  df.trial %>% 
+  group_by(SubID,intervalType) %>% 
+  dplyr::summarise(MeanAcc=mean(hit,na.rm=TRUE))
+
+sub.exclude.accuracy = summary_table$SubID[which(summary_table$MeanAcc<0.0)]
+
+PreAccuracyExclusionN = length(unique(df.trial$SubID))
+
+# Exclude the subjects with low accuracy, low number of blocks performed, or very long RTs
+df.trial = df.trial %>%
+  filter(!SubID %in% sub.exclude.accuracy)
+
+ExcludeAccuracy = PreAccuracyExclusionN - length(unique(df.trial$SubID))
+
+
+# Exclude the subjects with no random errors in the accuracy condition
+df.trial = df.trial %>%
+  filter(!SubID %in% c("616766efa6666ba724ef75ca","59ff81fd5d06850001afeeab"))
+
+
+summary_table =  df.trial %>% 
+  group_by(SubID,intervalType) %>% 
+  dplyr::summarise(MeanAcc=mean(hit,na.rm=TRUE))
+
+summary_table_speed = subset(summary_table,intervalType=="Speed")
+hist(summary_table_speed$MeanAcc)
+summary_table_accuracy = subset(summary_table,intervalType=="Accuracy")
+hist(summary_table_accuracy$MeanAcc)
+
+
+#### Save out the data for the behavioral analyses ####
+write.csv(x = df.trial, file = paste0('../data/ProcessedData/','CleanData', 'SpeedAccuracyProb','_nSubs_',length(unique(df.trial$SubID)),'.csv'), row.names = FALSE)
+write.csv(x = df.trial, file = paste0('../brms/Cluster/data/', 'SpeedAccuracyProb','_nSubs_',length(unique(df.trial$SubID)),'.csv'), row.names = FALSE)
+
+
+#### Save out the data for DDM ####
+
+# Only automatic errors
+df.DDM = df.trial %>%
+  filter(ErrorType != "random")%>%
+  dplyr::select(SubID,trialNum,hit,rt,intervalType,blockType,congruence,scaledRunningTime) %>%
+  mutate(rt=rt/1000,
+         response=hit,
+         congruency=ifelse(congruence==1,"congruent","incongruent")) %>%
+  rename(subj_idx=SubID) %>%
+  dplyr::select(-hit,-congruence)
+
+
+# Save to the DDM folder
+write.csv(x = df.DDM, file = paste0('../ddm/data/Mixed/ae_only/','DDM_','Mixed','_nSubs_',length(unique(df.DDM$subj_idx)),'.csv'), row.names = FALSE)
+
+
+
+#### Pre-processing summary ####
+preproSummary = as.data.frame(matrix())
+preproSummary$V1 = "NSubs"
+
+# Time on task and quizzes
+preproSummary$Initial = StartNParticipants
+
+# Time on task and quizzes
+preproSummary$Quizzes = ExcludeQuiz 
+
+# Too many responses
+preproSummary$TooManyResponses = ExcludeTooManyResponses 
+
+# Accuracy
+preproSummary$LowAccuracy = ExcludeAccuracy 
+
+# Final
+
+# Accuracy
+preproSummary$Final = length(unique(df.trial$SubID)) 
+
+# Demographics
+final_participants <- data.prolific %>%
+  filter(Participant.id %in% unique(df.trial$SubID))
+
+# Clean the expired age data
+final_participants$Age = as.numeric(ifelse(final_participants$Age=="DATA_EXPIRED",NaN,final_participants$Age))
+
+# Median age
+preproSummary$MedianAge = median(final_participants$Age,na.rm = T)
+
+# Gender
+preproSummary$Male = length(final_participants[ which(final_participants$Sex=='Male'),]$Sex)
+preproSummary$Female = length(final_participants[ which(final_participants$Sex=='Female'),]$Sex)
+
+
+
+# Final
+
+write.csv(preproSummary, file = "PreprocessingSummary_Experiment5.csv")

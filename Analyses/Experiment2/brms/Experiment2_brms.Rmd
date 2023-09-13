@@ -1,0 +1,912 @@
+---
+title: "CA costs - Experiment 2"
+author: "Ivan Grahek"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    theme: default
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## About the code
+
+Experiment: Control adjustment costs Experiment 2 (Speed vs. Accuracy vs. Speed-Accuracy conditions)
+Code written by: Ivan Grahek (2023)
+Description: Code for the analysis of behavioral data for Experiment 2 of the Control Adjustment costs project.  
+
+\newpage
+
+# Load the libraries 
+
+
+```{r, message=FALSE}
+# clear the environment
+rm(list=ls()) 
+
+# set seed
+set.seed(42) 
+
+#load packages and install them if they're not installed. the pacman package will 
+#automatically check for the requested packages and download & install them if they are not on the computer.
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(brms,here,broom,knitr,tidyverse,plyr,cowplot,emmeans,tidybayes,grDevices,viridis,MASS)
+
+# Define the summary posterior function
+summarize_posterior <- function(model,variable) {
+   post = posterior_samples(model, "^b")
+   ggplot(post,aes_string(x=paste0("`",variable,"`"))) + 
+     geom_histogram(bins=50) + 
+     geom_vline(xintercept=0, linetype="dotted",size=1) + 
+     labs(title=paste(variable,"p<0 = ",length(subset(post[[variable]],post[[variable]]<0))/length(post[[variable]]))) +
+     theme_classic() 
+
+}
+
+# Define the difference summary posterior function
+summarize_difference_posterior <- function(V1,V2,effect) {
+   post = as.data.frame(V1-V2)
+   ggplot(data=post,aes(x=`V1 - V2`)) + 
+     geom_histogram(bins=50) + 
+     geom_vline(xintercept=0, linetype="dotted",size=1) + 
+     labs(title=paste(effect,"p<0 = ",length(post[post<0])/length(post$`V1 - V2`))) +
+     theme_classic() 
+
+}
+
+# Define calculate the posterior probabilities function
+posterior_probabilities <- function(model) {
+   parameter_names = rownames(summary(model)[["fixed"]])
+   post_prob = rep(0,length(parameter_names))
+   for (i in 1:length(parameter_names)){
+     t = hypothesis(model,paste0(parameter_names[i],"<0"))
+     post_prob[i] = t$hypothesis$Post.Prob
+   }
+  return(post_prob)
+}
+
+```
+
+
+# Main analyses
+
+## Reaction times
+
+### Import the model
+
+```{r,warning=T, message=T}
+
+model = readRDS("Cluster/output/model.RT.rds")
+
+```
+
+### Checks
+
+Plotting the chains
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+plot(model, pars = "^b_", ask = FALSE, N=4)
+```
+
+R hat
+```{r, warning=FALSE, message=FALSE}
+# R hat for all parameters
+stanplot(model, type="rhat_hist")
+```
+
+
+Posterior predictive check
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+pp_check(model)
+pp_check(model,type="dens_overlay_grouped",group="Congruency")
+pp_check(model,type="dens_overlay_grouped",group="intervalType")
+pp_check(model,type="dens_overlay_grouped",group="blockType")
+```
+
+### Summary of the best model
+
+```{r, warning=FALSE, message=FALSE}
+# Summary of the model
+x=summary(model)[["fixed"]]
+x$`HDI(95%)` = paste(format(round(x$`l-95% CI`, 2), nsmall = 2), format(round(x$`u-95% CI`, 2), nsmall = 2), sep=", ")
+x$`l-95% CI` = NULL
+x$`u-95% CI` = NULL
+x$Bulk_ESS = NULL
+x$Rhat = NULL
+x$Tail_ESS = NULL
+
+# add a row name column
+names = rownames(x)
+x = cbind(names,x)
+rownames(x) = NULL
+
+
+# turn into numeric to round
+x$Estimate = as.numeric(x$Estimate)
+x$Est.Error = as.numeric(x$Est.Error)
+
+# calculate the posterior probabilities
+x$PostProb = posterior_probabilities(model)
+
+# edit the column names
+kable(x,digits = 2,col.names = c("Parameter", "Estimate", "SE", "CI (95%)","p<0"),align = "lrrrr")
+
+```
+
+### Make the posterior conditions
+
+```{r, warning=FALSE, message=FALSE}
+
+# Calculate the posteriors per condition
+posterior=emmeans(model,specs=~intervalType*blockType)
+
+posteriorConditions = gather_emmeans_draws(posterior)
+
+# Calculate the conditions
+Speed_Fixed = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed")
+Speed_Varying = subset(posteriorConditions,intervalType=="Speed" & blockType=="Varying")
+
+Speed_Accuracy_Fixed = subset(posteriorConditions,intervalType=="Speed_Accuracy" & blockType=="Fixed")
+Speed_Accuracy_Varying = subset(posteriorConditions,intervalType=="Speed_Accuracy" & blockType=="Varying")
+
+Accuracy_Fixed = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed")
+Accuracy_Varying = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Varying")
+```
+
+#### Comparing the conditions
+
+Speed goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Speed_Goal = Speed_Fixed$.value - Speed_Varying$.value 
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed goal: Fixed - Varying", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+Speed & Accuracy goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Accuracy goal
+SpeedAccuracy_Goal = Speed_Accuracy_Varying$.value - Speed_Accuracy_Fixed$.value
+SpeedAccuracy_Goal = as.data.frame(SpeedAccuracy_Goal)
+h = (hypothesis(SpeedAccuracy_Goal,"SpeedAccuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed & Accuracy (varying vs. fixed)")
+
+hist(SpeedAccuracy_Goal$SpeedAccuracy_Goal,col="lightblue", main="Speed & Accuracy goal: Varying - Fixed", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+Accuracy goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Accuracy goal
+Accuracy_Goal = Accuracy_Varying$.value - Accuracy_Fixed$.value
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy goal: Varying - Fixed", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+
+Speed vs. Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+Accuracy_min_Speed_Fixed = Accuracy_Fixed$.value - Speed_Fixed$.value
+Accuracy_min_Speed_Varying = Accuracy_Varying$.value - Speed_Varying$.value
+
+Accuracy_min_Speed = Accuracy_min_Speed_Fixed - Accuracy_min_Speed_Varying
+Accuracy_min_Speed = as.data.frame(Accuracy_min_Speed)
+h = (hypothesis(Accuracy_min_Speed,"Accuracy_min_Speed>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy - Speed x (varying vs. fixed)")
+
+hist(Accuracy_min_Speed$Accuracy_min_Speed,col="lightblue", main="Accuracy - Speed x (varying vs. fixed)", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+Speed vs. Speed-Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+SpeedAccuracy_min_Speed_Fixed = Speed_Accuracy_Fixed$.value - Speed_Fixed$.value
+SpeedAccuracy_min_Speed_Varying = Speed_Accuracy_Varying$.value - Speed_Varying$.value
+
+SpeedAccuracy_min_Speed = SpeedAccuracy_min_Speed_Fixed - Accuracy_min_Speed_Varying
+SpeedAccuracy_min_Speed = as.data.frame(SpeedAccuracy_min_Speed)
+h = (hypothesis(SpeedAccuracy_min_Speed,"SpeedAccuracy_min_Speed>0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAccuracy - Speed x (varying vs. fixed)")
+
+hist(SpeedAccuracy_min_Speed$SpeedAccuracy_min_Speed,col="lightblue", main="SpeedAccuracy - Speed x (varying vs. fixed)", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+Accuracy vs. Speed-Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+Accuracy_min_SpeedAccuracy_Fixed = Accuracy_Fixed$.value - Speed_Accuracy_Fixed$.value
+Accuracy_min_SpeedAccuracy_Varying = Accuracy_Varying$.value - Speed_Accuracy_Varying$.value
+
+Accuracy_min_SpeedAccuracy = Accuracy_min_SpeedAccuracy_Fixed - Accuracy_min_SpeedAccuracy_Varying
+Accuracy_min_SpeedAccuracy = as.data.frame(Accuracy_min_SpeedAccuracy)
+h = (hypothesis(Accuracy_min_SpeedAccuracy,"Accuracy_min_SpeedAccuracy>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy - SpeedAccuracy x (varying vs. fixed)")
+
+hist(Accuracy_min_SpeedAccuracy$Accuracy_min_SpeedAccuracy,col="lightblue", main="SpeedAccuracy - Speed x (varying vs. fixed)", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Plotting the model
+
+```{r, warning=FALSE, message=FALSE, fig.width=12,fig.height=5}
+# Extract posteriors
+posterior = as_draws_df(model, variable = c("b_Intercept",
+                                            "b_blockTypeVarying_min_Fixed",
+                                            "b_intervalTypeSpeed_min_Accuracy",
+                                            
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeVarying_min_Fixed",
+                                            
+                                            "b_intervalTypeAccuracy_min_Speed_Accuracy",
+                                            "b_intervalTypeAccuracy_min_Speed_Accuracy:blockTypeVarying_min_Fixed"))
+# Remove the non-necessary variables
+posterior = posterior[,1:6]
+
+# Set the intercept to the mean value
+posterior$b_Intercept = mean(posterior$b_Intercept)
+
+# Transform the posteriors
+Speed_min_Accuracy = cbind(c(1,1,1),contr.sdif(3))
+Varying_min_Fixed = cbind(c(1,1),contr.sdif(2))
+coding.total = as.matrix(Speed_min_Accuracy) %x% as.matrix(Varying_min_Fixed)
+
+# Create predictions from all the posterior samples
+results =  as.data.frame(t(coding.total %*% t(posterior)))
+colnames(results) = c("Speed_Varying","Speed_Fixed","Accuracy_Varying","Accuracy_Fixed","S&A_Varying","S&A_Fixed")
+
+
+results = as.data.frame(posterior_summary(results))
+results$factor = rownames(results)
+results = results %>% separate(factor,c('Interval Type','Block Type'),'_')
+
+# Reorder the factor levels
+results$`Interval Type` = factor(results$`Interval Type`, levels = c("Speed", "S&A","Accuracy"))
+
+# Plot
+p = ggplot(results,aes(x=`Interval Type`,y=Estimate,linetype=`Block Type`,shape=`Block Type`,color=`Interval Type`)) + 
+  geom_pointrange(aes(ymin=Q2.5, ymax=Q97.5),position=position_dodge(0.4),size=2, fatten = 2) + 
+  guides(color = guide_legend(override.aes=list(shape = 20)))+
+  ylab("Reaction times (ms)")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed","S&A","Accuracy"), expand=c(0.2, 0.2))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_y_continuous(limits = c(545,780))+
+  
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,85,5,5), "mm"),
+        axis.line.x.bottom=element_line(size=0.5),
+        axis.line.y.left=element_line(size=0.5),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=33,color = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none",
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+Fig3.RT = p
+
+
+
+
+```
+
+
+
+
+
+
+
+## Accuracy
+
+### Import the model
+
+```{r,warning=T, message=T}
+
+model = readRDS("Cluster/output/model.Acc.rds")
+
+```
+
+### Checks
+
+Plotting the chains
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+plot(model, pars = "^b_", ask = FALSE, N=4)
+```
+
+R hat
+```{r, warning=FALSE, message=FALSE}
+# R hat for all parameters
+stanplot(model, type="rhat_hist")
+```
+
+
+Posterior predictive check
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+pp_check(model)
+pp_check(model,type="dens_overlay_grouped",group="Congruency")
+pp_check(model,type="dens_overlay_grouped",group="intervalType")
+pp_check(model,type="dens_overlay_grouped",group="blockType")
+```
+
+### Summary of the best model
+
+```{r, warning=FALSE, message=FALSE}
+# Summary of the model
+x=summary(model)[["fixed"]]
+x$`HDI(95%)` = paste(format(round(x$`l-95% CI`, 2), nsmall = 2), format(round(x$`u-95% CI`, 2), nsmall = 2), sep=", ")
+x$`l-95% CI` = NULL
+x$`u-95% CI` = NULL
+x$Bulk_ESS = NULL
+x$Rhat = NULL
+x$Tail_ESS = NULL
+
+# add a row name column
+names = rownames(x)
+x = cbind(names,x)
+rownames(x) = NULL
+
+
+# turn into numeric to round
+x$Estimate = as.numeric(x$Estimate)
+x$Est.Error = as.numeric(x$Est.Error)
+
+# calculate the posterior probabilities
+x$PostProb = posterior_probabilities(model)
+
+# edit the column names
+kable(x,digits = 2,col.names = c("Parameter", "Estimate", "SE", "CI (95%)","p<0"),align = "lrrrr")
+
+```
+
+Make the posterior conditions
+
+```{r, warning=FALSE, message=FALSE}
+
+# Calculate the posteriors per condition
+posterior=emmeans(model,specs=~intervalType*blockType)
+
+posteriorConditions = gather_emmeans_draws(posterior)
+
+# Calculate the conditions
+Speed_Fixed = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed")
+Speed_Varying = subset(posteriorConditions,intervalType=="Speed" & blockType=="Varying")
+
+Speed_Accuracy_Fixed = subset(posteriorConditions,intervalType=="Speed_Accuracy" & blockType=="Fixed")
+Speed_Accuracy_Varying = subset(posteriorConditions,intervalType=="Speed_Accuracy" & blockType=="Varying")
+
+Accuracy_Fixed = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed")
+Accuracy_Varying = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Varying")
+```
+
+Speed goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Speed_Goal = Speed_Fixed$.value - Speed_Varying$.value 
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed goal: Fixed - Varying", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+Speed & Accuracy goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Accuracy goal
+SpeedAccuracy_Goal = Speed_Accuracy_Varying$.value - Speed_Accuracy_Fixed$.value
+SpeedAccuracy_Goal = as.data.frame(SpeedAccuracy_Goal)
+h = (hypothesis(SpeedAccuracy_Goal,"SpeedAccuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed & Accuracy (varying vs. fixed)")
+
+hist(SpeedAccuracy_Goal$SpeedAccuracy_Goal,col="lightblue", main="Speed & Accuracy goal: Varying - Fixed", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+Accuracy goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Accuracy goal
+Accuracy_Goal = Accuracy_Varying$.value - Accuracy_Fixed$.value
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy goal: Varying - Fixed", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+
+Speed vs. Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+Accuracy_min_Speed_Fixed = Accuracy_Fixed$.value - Speed_Fixed$.value
+Accuracy_min_Speed_Varying = Accuracy_Varying$.value - Speed_Varying$.value
+
+Accuracy_min_Speed = Accuracy_min_Speed_Fixed - Accuracy_min_Speed_Varying
+Accuracy_min_Speed = as.data.frame(Accuracy_min_Speed)
+h = (hypothesis(Accuracy_min_Speed,"Accuracy_min_Speed>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy - Speed x (varying vs. fixed)")
+
+hist(Accuracy_min_Speed$Accuracy_min_Speed,col="lightblue", main="Accuracy - Speed x (varying vs. fixed)", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+Speed vs. Speed-Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+SpeedAccuracy_min_Speed_Fixed = Speed_Accuracy_Fixed$.value - Speed_Fixed$.value
+SpeedAccuracy_min_Speed_Varying = Speed_Accuracy_Varying$.value - Speed_Varying$.value
+
+SpeedAccuracy_min_Speed = SpeedAccuracy_min_Speed_Fixed - Accuracy_min_Speed_Varying
+SpeedAccuracy_min_Speed = as.data.frame(SpeedAccuracy_min_Speed)
+h = (hypothesis(SpeedAccuracy_min_Speed,"SpeedAccuracy_min_Speed>0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAccuracy - Speed x (varying vs. fixed)")
+
+hist(SpeedAccuracy_min_Speed$SpeedAccuracy_min_Speed,col="lightblue", main="SpeedAccuracy - Speed x (varying vs. fixed)", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+Accuracy vs. Speed-Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+Accuracy_min_SpeedAccuracy_Fixed = Accuracy_Fixed$.value - Speed_Accuracy_Fixed$.value
+Accuracy_min_SpeedAccuracy_Varying = Accuracy_Varying$.value - Speed_Accuracy_Varying$.value
+
+Accuracy_min_SpeedAccuracy = Accuracy_min_SpeedAccuracy_Fixed - Accuracy_min_SpeedAccuracy_Varying
+Accuracy_min_SpeedAccuracy = as.data.frame(Accuracy_min_SpeedAccuracy)
+h = (hypothesis(Accuracy_min_SpeedAccuracy,"Accuracy_min_SpeedAccuracy>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy - SpeedAccuracy x (varying vs. fixed)")
+
+hist(Accuracy_min_SpeedAccuracy$Accuracy_min_SpeedAccuracy,col="lightblue", main="SpeedAccuracy - Speed x (varying vs. fixed)", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Plotting the  model
+
+```{r, warning=FALSE, message=FALSE, fig.width=12,fig.height=5}
+# Extract posteriors
+posterior = as_draws_df(model, variable = c("b_Intercept",
+                                            "b_blockTypeVarying_min_Fixed",
+                                            "b_intervalTypeSpeed_min_Accuracy",
+                                            
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeVarying_min_Fixed",
+                                            
+                                            "b_intervalTypeAccuracy_min_Speed_Accuracy",
+                                            "b_intervalTypeAccuracy_min_Speed_Accuracy:blockTypeVarying_min_Fixed"))
+# Remove the non-necessary variables
+posterior = posterior[,1:6]
+
+# Set the intercept to the mean value
+posterior$b_Intercept = mean(posterior$b_Intercept)
+
+# Transform the posteriors
+Speed_min_Accuracy = cbind(c(1,1,1),contr.sdif(3))
+Varying_min_Fixed = cbind(c(1,1),contr.sdif(2))
+coding.total = as.matrix(Speed_min_Accuracy) %x% as.matrix(Varying_min_Fixed)
+
+# Create predictions from all the posterior samples
+results =  as.data.frame(t(coding.total %*% t(posterior)))
+colnames(results) = c("Speed_Varying","Speed_Fixed","Accuracy_Varying","Accuracy_Fixed","S&A_Varying","S&A_Fixed")
+
+
+results = as.data.frame(posterior_summary(results))
+results$factor = rownames(results)
+results = results %>% separate(factor,c('Interval Type','Block Type'),'_')
+
+# Reorder the factor levels
+results$`Interval Type` = factor(results$`Interval Type`, levels = c("Speed", "S&A","Accuracy"))
+
+# Turn logits into probabilities
+results$Estimate = exp(results$Estimate)
+results$Estimate = results$Estimate / (1 + results$Estimate)
+
+results$Q2.5 = exp(results$Q2.5)
+results$Q2.5 = results$Q2.5 / (1 + results$Q2.5)
+
+results$Q97.5 = exp(results$Q97.5)
+results$Q97.5 = results$Q97.5 / (1 + results$Q97.5)
+
+# Plot
+p = ggplot(results,aes(x=`Interval Type`,y=Estimate,linetype=`Block Type`,shape=`Block Type`,color=`Interval Type`)) + 
+  geom_pointrange(aes(ymin=Q2.5, ymax=Q97.5),position=position_dodge(0.4),size=2, fatten = 2) + 
+  guides(color = guide_legend(override.aes=list(shape = 20)))+
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed","S&A","Accuracy"), expand=c(0.2, 0.2))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_y_continuous(limits = c(0.5,0.98))+
+  
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,85,5,5), "mm"),
+        axis.line.x.bottom=element_line(size=0.5),
+        axis.line.y.left=element_line(size=0.5),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=33,color = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none",
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+Fig3.Acc = p
+
+```
+
+
+
+
+
+
+
+# Previous interval
+
+## Reaction times
+
+### Import the model
+
+```{r,warning=T, message=T}
+
+model = readRDS("Cluster/output/model.RT_prevInt.rds")
+
+```
+
+### Checks
+
+Plotting the chains
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+plot(model, pars = "^b_", ask = FALSE, N=4)
+```
+
+R hat
+```{r, warning=FALSE, message=FALSE}
+# R hat for all parameters
+stanplot(model, type="rhat_hist")
+```
+
+
+Posterior predictive check
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+pp_check(model)
+pp_check(model,type="dens_overlay_grouped",group="Congruency")
+pp_check(model,type="dens_overlay_grouped",group="intervalType")
+```
+
+### Summary of the best model
+
+```{r, warning=FALSE, message=FALSE}
+# Summary of the model
+x=summary(model)[["fixed"]]
+x$`HDI(95%)` = paste(format(round(x$`l-95% CI`, 2), nsmall = 2), format(round(x$`u-95% CI`, 2), nsmall = 2), sep=", ")
+x$`l-95% CI` = NULL
+x$`u-95% CI` = NULL
+x$Bulk_ESS = NULL
+x$Rhat = NULL
+x$Tail_ESS = NULL
+
+# add a row name column
+names = rownames(x)
+x = cbind(names,x)
+rownames(x) = NULL
+
+
+# turn into numeric to round
+x$Estimate = as.numeric(x$Estimate)
+x$Est.Error = as.numeric(x$Est.Error)
+
+# calculate the posterior probabilities
+x$PostProb = posterior_probabilities(model)
+
+# edit the column names
+kable(x,digits = 2,col.names = c("Parameter", "Estimate", "SE", "CI (95%)","p<0"),align = "lrrrr")
+
+```
+
+Make the posterior conditions
+
+```{r, warning=FALSE, message=FALSE}
+
+# # Calculate the posteriors per condition
+# posterior=emmeans(model,specs=~intervalType*blockType)
+# 
+# posteriorConditions = gather_emmeans_draws(posterior)
+# 
+# # Calculate the conditions
+# Speed_Fixed = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed")
+# Speed_Varying = subset(posteriorConditions,intervalType=="Speed" & blockType=="Varying")
+# 
+# Speed_Accuracy_Fixed = subset(posteriorConditions,intervalType=="Speed_Accuracy" & blockType=="Fixed")
+# Speed_Accuracy_Varying = subset(posteriorConditions,intervalType=="Speed_Accuracy" & blockType=="Varying")
+# 
+# Accuracy_Fixed = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed")
+# Accuracy_Varying = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Varying")
+```
+
+
+### Plotting the  model
+
+```{r, warning=FALSE, message=FALSE, fig.width=12,fig.height=5}
+
+# Default plot
+p = conditional_effects(model, effects = "intervalType:previntervalType")
+
+# Convert to a data frame
+p = as.data.frame(p$`intervalType:previntervalType`)
+# 
+
+
+p$intervalType = factor(p$intervalType, levels = c("Speed", "Speed_Accuracy", "Accuracy"))
+p$previntervalType = factor(p$previntervalType, levels = c("Speed", "Speed_Accuracy", "Accuracy"))
+
+levels(p$intervalType) = c("Speed","Speed & Accuracy" , "Accuracy")
+levels(p$previntervalType) = c("Speed","Speed & Accuracy" , "Accuracy")
+
+
+# Plot
+p = ggplot(p,aes(x=intervalType,y=estimate__,color=previntervalType)) + 
+  geom_pointrange(aes(ymin=lower__, ymax=upper__),position=position_dodge(0.4),size=2, fatten = 2) + 
+  guides(color = guide_legend(override.aes=list(shape = 20)))+
+  ylab("Reaction times (ms)")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed","Speed & Accuracy","Accuracy"), expand=c(0.2, 0.2))+
+  # scale_color_manual(values = c("Speed" = Dark, "Speed & Accuracy" = Medium,"Accuracy" = Light)) +
+  scale_y_continuous(limits = c(500,800))+
+  
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,85,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20,color = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        legend.key=element_blank(),
+        legend.key.height= unit(10, 'mm'),
+        legend.key.width= unit(10, 'mm'))
+
+p
+
+
+Fig3.RT_prev = p
+
+
+
+
+```
+
+
+
+## Accuracy
+
+### Import the model
+
+```{r,warning=T, message=T}
+
+model = readRDS("Cluster/output/model.Acc_prevInt.rds")
+
+```
+
+### Checks
+
+Plotting the chains
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+plot(model, pars = "^b_", ask = FALSE, N=4)
+```
+
+R hat
+```{r, warning=FALSE, message=FALSE}
+# R hat for all parameters
+stanplot(model, type="rhat_hist")
+```
+
+
+Posterior predictive check
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+pp_check(model)
+pp_check(model,type="dens_overlay_grouped",group="Congruency")
+pp_check(model,type="dens_overlay_grouped",group="intervalType")
+```
+
+### Summary of the best model
+
+```{r, warning=FALSE, message=FALSE}
+# Summary of the model
+x=summary(model)[["fixed"]]
+x$`HDI(95%)` = paste(format(round(x$`l-95% CI`, 2), nsmall = 2), format(round(x$`u-95% CI`, 2), nsmall = 2), sep=", ")
+x$`l-95% CI` = NULL
+x$`u-95% CI` = NULL
+x$Bulk_ESS = NULL
+x$Rhat = NULL
+x$Tail_ESS = NULL
+
+# add a row name column
+names = rownames(x)
+x = cbind(names,x)
+rownames(x) = NULL
+
+
+# turn into numeric to round
+x$Estimate = as.numeric(x$Estimate)
+x$Est.Error = as.numeric(x$Est.Error)
+
+# calculate the posterior probabilities
+x$PostProb = posterior_probabilities(model)
+
+# edit the column names
+kable(x,digits = 2,col.names = c("Parameter", "Estimate", "SE", "CI (95%)","p<0"),align = "lrrrr")
+
+```
+
+Make the posterior conditions
+
+```{r, warning=FALSE, message=FALSE}
+
+# # Calculate the posteriors per condition
+# posterior=emmeans(model,specs=~intervalType*blockType)
+# 
+# posteriorConditions = gather_emmeans_draws(posterior)
+# 
+# # Calculate the conditions
+# Speed_Fixed = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed")
+# Speed_Varying = subset(posteriorConditions,intervalType=="Speed" & blockType=="Varying")
+# 
+# Speed_Accuracy_Fixed = subset(posteriorConditions,intervalType=="Speed_Accuracy" & blockType=="Fixed")
+# Speed_Accuracy_Varying = subset(posteriorConditions,intervalType=="Speed_Accuracy" & blockType=="Varying")
+# 
+# Accuracy_Fixed = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed")
+# Accuracy_Varying = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Varying")
+```
+
+
+### Plotting the  model
+
+```{r, warning=FALSE, message=FALSE, fig.width=12,fig.height=5}
+
+# Default plot
+p = conditional_effects(model, effects = "intervalType:previntervalType")
+
+# Convert to a data frame
+p = as.data.frame(p$`intervalType:previntervalType`)
+# 
+
+
+p$intervalType = factor(p$intervalType, levels = c("Speed", "Speed_Accuracy", "Accuracy"))
+p$previntervalType = factor(p$previntervalType, levels = c("Speed", "Speed_Accuracy", "Accuracy"))
+
+levels(p$intervalType) = c("Speed","Speed & Accuracy" , "Accuracy")
+levels(p$previntervalType) = c("Speed","Speed & Accuracy" , "Accuracy")
+
+
+# Plot
+p = ggplot(p,aes(x=intervalType,y=estimate__,color=previntervalType)) + 
+  geom_pointrange(aes(ymin=lower__, ymax=upper__),position=position_dodge(0.4),size=2, fatten = 2) + 
+  guides(color = guide_legend(override.aes=list(shape = 20)))+
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed","Speed & Accuracy","Accuracy"), expand=c(0.2, 0.2))+
+  # scale_color_manual(values = c("Speed" = Dark, "Speed & Accuracy" = Medium,"Accuracy" = Light)) +
+  scale_y_continuous(limits = c(0.6,0.99))+
+  
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,85,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20,color = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        legend.key=element_blank(),
+        legend.key.height= unit(10, 'mm'),
+        legend.key.width= unit(10, 'mm'))
+
+p
+
+
+Fig3.Acc_prev = p
+
+
+
+
+```
+# Save the figures
+
+
+```{r, warning=FALSE, message=FALSE}
+
+# pdf(file="../../../Manuscript/figures/Figure_Fig3_a_behavior.pdf",height=4,width=16)
+# 
+# p = cowplot::plot_grid(Fig3.RT,
+#                        Fig3.Acc,
+#                        nrow = 1)
+# p
+# dev.off()
+# 
+# pdf(file="../../../Manuscript/figures/Figure_Fig3_b_behavior.pdf",height=4,width=22)
+# 
+# p = cowplot::plot_grid(Fig3.RT_prev,
+#                        Fig3.Acc_prev,
+#                        nrow = 1)
+# p
+# dev.off()
+
+pdf(file="../../../Manuscript/figures/Figure_3_behavior.pdf",height=6,width=19)
+
+p = cowplot::plot_grid(Fig3.RT,
+                       Fig3.Acc,
+                       nrow = 1)
+p
+dev.off()
+
+
+
+```

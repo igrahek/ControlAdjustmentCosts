@@ -1,0 +1,3073 @@
+---
+title: "DDM results Experiment 2"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Loading libraries
+
+```{r, message=FALSE}
+# test
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(gridExtra)
+library(cowplot)
+library(sjPlot)
+library(RColorBrewer)
+library(knitr)
+library(data.table)
+library(grDevices)
+library(brms)
+library(viridis)
+
+
+# Functions
+test.params <- function(df) {
+  inner_join(inner_join(inner_join(df %>%
+                                     map_dfr(mean) %>%
+                                     gather(parameter, estimate, everything()) %>% dplyr::rename(Mean=estimate),
+                                   df %>%
+                                     map_dfr(sd) %>%
+                                     gather(parameter, estimate, everything()) %>% dplyr::rename(SD=estimate),by='parameter'),
+                        
+                        df %>% map(~ .x > 0) %>% 
+                          map_dfr(mean) %>%
+                          gather(parameter, pvalue, everything()) %>%
+                          mutate(pvalue = if_else(round(pvalue)==1, 1-pvalue, pvalue),
+                                 sig = if_else(pvalue < 0.001, "***",
+                                               if_else(pvalue < 0.01, "**",
+                                                       if_else(pvalue < 0.05, "*", "n.s."))))),
+             inner_join(df %>%
+                          map_dfr(function(x) return(quantile(x,0.975)[[1]])) %>%
+                          gather(parameter, estimate, everything()) %>% dplyr::rename(CI_upper=estimate),
+                        df %>% map_dfr(function(x) return(quantile(x,0.025)[[1]])) %>%
+                          gather(parameter, estimate, everything()) %>% dplyr::rename(CI_lower=estimate),by='parameter'),by='parameter') 
+}
+
+# Define the summary posterior function
+summarize_posterior <- function(V1,V2,effect) {
+   post = as.data.frame(V1-V2)
+   ggplot(data=post,aes(x=`V1 - V2`)) + 
+     geom_histogram(bins=50) + 
+     geom_vline(xintercept=0, linetype="dotted",size=1) + 
+     labs(title=paste(effect,"p<0 = ",length(post[post<0])/length(post$`V1 - V2`))) +
+     theme_classic() 
+
+}
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+# Base template
+gg <- list(
+  theme_bw(),
+  theme(plot.title = element_text(hjust = 0.5, size=13),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.spacing = unit(0.75, "lines"),
+        legend.box.spacing = unit(0.5, "lines"),
+        legend.position = "bottom",
+        legend.margin = margin(c(0, 0, 0, 0), unit='lines'))
+)
+
+# Density template
+ggdensity <- list(
+  gg,
+  theme(panel.spacing = unit(0.25, "lines"),
+        legend.key.size = unit(0.7, "lines"),
+        legend.direction = "horizontal",
+        axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        legend.box.spacing = unit(0.25, "lines"))
+)
+```
+
+
+
+
+
+
+# Main analyses  - Interval type on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed1/modelMixed1_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed1/modelMixed1_traces.csv')
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.blockType..Sum..S.Varying.,
+                                 v_Intercept,
+                                 v_C.intervalType..Poly..Linear,
+                                 v_C.intervalType..Poly..Quadratic,
+                                 v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.blockType..Sum..S.Varying.,
+                                 
+                                 t_Intercept,
+                                 t_C.intervalType..Poly..Linear,
+                                 t_C.intervalType..Poly..Quadratic)%>%
+                          
+      mutate(a_Intercept = 0.5 * a_Intercept,
+                                 a_C.intervalType..Poly..Linear = 0.5 * a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic = 0.5 * a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+             a_C.blockType..Sum..S.Fixed. = 0.5 * a_C.blockType..Sum..S.Varying.)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed1/modelMixed1_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,blockType)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+## Import the posteriors
+
+### Transform the traces
+
+```{r, message=FALSE}
+traces = read.csv('output/Mixed/ae_only/modelMixed1/modelMixed1_traces.csv')
+
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.blockType..Sum..S.Varying.,
+                                 v_Intercept,
+                                 v_C.intervalType..Poly..Linear,
+                                 v_C.intervalType..Poly..Quadratic,
+                                 v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.blockType..Sum..S.Varying.,
+                                 
+                                 t_Intercept,
+                                 t_C.intervalType..Poly..Linear,
+                                 t_C.intervalType..Poly..Quadratic)%>%
+                          
+      mutate(a_Intercept = 0.5 * a_Intercept,
+                                 a_C.intervalType..Poly..Linear = 0.5 * a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic = 0.5 * a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+             a_C.blockType..Sum..S.Fixed. = 0.5 * a_C.blockType..Sum..S.Varying.)
+
+
+
+traces<-traces %>% dplyr::mutate(a_Fixed = a_Intercept - a_C.blockType..Sum..S.Varying.,
+                                 a_Varying = a_Intercept + a_C.blockType..Sum..S.Varying.,
+                                 
+                                 a_C.intervalType..Poly..Linear_Fixed = a_C.intervalType..Poly..Linear - a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Linear_Varying = a_C.intervalType..Poly..Linear + a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 
+                                 a_C.intervalType..Poly..Quadratic_Fixed = a_C.intervalType..Poly..Quadratic - a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic_Varying = a_C.intervalType..Poly..Quadratic + a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 
+                                 
+                                 v_Fixed = v_Intercept - v_C.blockType..Sum..S.Varying.,
+                                 v_Varying = v_Intercept + v_C.blockType..Sum..S.Varying.,
+                                 
+                                 v_C.intervalType..Poly..Linear_Fixed = v_C.intervalType..Poly..Linear - v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Linear_Varying = v_C.intervalType..Poly..Linear + v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 
+                                 v_C.intervalType..Poly..Quadratic_Fixed = v_C.intervalType..Poly..Quadratic - v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic_Varying = v_C.intervalType..Poly..Quadratic + v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.)
+                                 
+
+traces<-traces %>% dplyr::mutate(a_Speed_Varying = a_Varying - 0.7071068 * a_C.intervalType..Poly..Linear_Varying + 0.4082483 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_Speed_Fixed = a_Fixed - 0.7071068 * a_C.intervalType..Poly..Linear_Fixed + 0.4082483 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 a_Acc_Varying = a_Varying - 0.8164966 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_Acc_Fixed = a_Fixed - 0.8164966 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 a_SpeedAcc_Varying = a_Varying + 0.7071068 * a_C.intervalType..Poly..Linear_Varying + 0.4082483 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_SpeedAcc_Fixed = a_Fixed + 0.7071068 * a_C.intervalType..Poly..Linear_Fixed + 0.4082483 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 
+                                 v_Speed_Varying = v_Varying - 0.7071068 * v_C.intervalType..Poly..Linear_Varying + 0.4082483 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_Speed_Fixed = v_Fixed - 0.7071068 * v_C.intervalType..Poly..Linear_Fixed + 0.4082483 * v_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 v_Acc_Varying = v_Varying - 0.8164966 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_Acc_Fixed = v_Fixed - 0.8164966 * v_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 v_SpeedAcc_Varying = v_Varying + 0.7071068 * v_C.intervalType..Poly..Linear_Varying + 0.4082483 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_SpeedAcc_Fixed = v_Fixed + 0.7071068 * v_C.intervalType..Poly..Linear_Fixed + 0.4082483 * v_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 
+                                 t_Speed = t_Intercept - 0.7071068 * t_C.intervalType..Poly..Linear + 0.4082483 * t_C.intervalType..Poly..Quadratic,
+
+                                 t_Acc = t_Intercept - 0.8164966 * t_C.intervalType..Poly..Quadratic,
+
+                                 t_SpeedAcc = t_Intercept + 0.7071068 * t_C.intervalType..Poly..Linear + 0.4082483 * t_C.intervalType..Poly..Quadratic)
+
+
+traces<-traces %>% dplyr::mutate(a_AccMinSpeed_Varying = a_Acc_Varying - a_Speed_Varying,
+                                 a_AccMinSpeedAcc_Varying = a_Acc_Varying - a_SpeedAcc_Varying,
+                                 a_SpeedAccMinSpeed_Varying = a_SpeedAcc_Varying - a_Speed_Varying,
+                                 
+                                 a_AccMinSpeed_Fixed = a_Acc_Fixed - a_Speed_Fixed,
+                                 a_AccMinSpeedAcc_Fixed = a_Acc_Fixed - a_SpeedAcc_Fixed,
+                                 a_SpeedAccMinSpeed_Fixed = a_SpeedAcc_Fixed - a_Speed_Fixed,
+                                 
+                                 v_AccMinSpeed_Varying = v_Acc_Varying - v_Speed_Varying,
+                                 v_AccMinSpeedAcc_Varying = v_Acc_Varying - v_SpeedAcc_Varying,
+                                 v_SpeedAccMinSpeed_Varying = v_SpeedAcc_Varying - v_Speed_Varying,
+                                 
+                                 v_AccMinSpeed_Fixed = v_Acc_Fixed - v_Speed_Fixed,
+                                 v_AccMinSpeedAcc_Fixed = v_Acc_Fixed - v_SpeedAcc_Fixed,
+                                 v_SpeedAccMinSpeed_Fixed = v_SpeedAcc_Fixed - v_Speed_Fixed)
+```
+
+### Summarry of the parameter estimates
+
+```{r, message=FALSE}
+
+
+
+```
+
+### Summarize the posteriors
+
+```{r, message=FALSE}
+
+
+
+
+```
+
+
+## Each condition
+
+### Bar plot
+
+```{r, message=FALSE}
+
+
+
+### Separate conditions ####
+
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Speed_Fixed',
+                                                'v_Acc_Fixed',
+                                                'v_SpeedAcc_Fixed',
+                                                'v_Speed_Varying',
+                                                'v_Acc_Varying',
+                                                'v_SpeedAcc_Varying'))
+
+threshold<- output %>% filter(parameter %in% c('a_Speed_Fixed',
+                                                'a_Acc_Fixed',
+                                                'a_SpeedAcc_Fixed',
+                                                'a_Speed_Varying',
+                                                'a_Acc_Varying',
+                                                'a_SpeedAcc_Varying'))
+
+NDT<- output %>% filter(parameter %in% c('t_Speed',
+                                         't_Acc',
+                                         't_SpeedAcc'))
+# VA
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  facet_wrap(vars(factor)) +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,4)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+# ggsave("Mixed_ae_only_VAT.tiff", units="in", width=15, height=4, dpi=400, compression = 'lzw')
+
+
+kable(va)
+
+
+
+
+```
+
+
+### Points in 2D
+
+```{r, message=FALSE}
+
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Speed_Fixed',
+                                                'v_Acc_Fixed',
+                                                'v_SpeedAcc_Fixed',
+                                                'v_Speed_Varying',
+                                                'v_Acc_Varying',
+                                                'v_SpeedAcc_Varying'))
+
+threshold<- output %>% filter(parameter %in% c('a_Speed_Fixed',
+                                                'a_Acc_Fixed',
+                                                'a_SpeedAcc_Fixed',
+                                                'a_Speed_Varying',
+                                                'a_Acc_Varying',
+                                                'a_SpeedAcc_Varying'))
+
+
+# VA
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+va$parameter = c("Drift","Drift","Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = va, 
+            id_cols = c(factor,fixed), 
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed","Speed", "Accuracy","Accuracy","Speed & Accuracy","Speed & Accuracy" )
+
+# data$factor = paste(data$factor,data$fixed,sep=" - ")
+
+data$factor = factor(data$factor, levels = c("Speed", "Speed & Accuracy", "Accuracy"))
+levels(data$factor) = c("Speed","Speed & Accuracy" , "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape = fixed)) +
+  geom_point(size=6) +
+  # geom_line(aes(group=fixed),linewidth=1, color="black")+
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(1.9,3.4))+
+  scale_y_continuous(limits = c(0.4,1.2))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none")  
+
+p
+
+
+```
+
+
+## Stats
+
+### Accuracy vs. speed (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = traces$v_Acc_Fixed - traces$v_Speed_Fixed
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Drift [Fixed]")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Speed- Acc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+
+### Accuracy vs. speed (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = traces$a_Acc_Fixed - traces$a_Speed_Fixed
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Threshold [Fixed]")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Acc - Speed [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Accuracy_SpeedAcc = traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed
+Accuracy_SpeedAcc = as.data.frame(Accuracy_SpeedAcc)
+h = (hypothesis(Accuracy_SpeedAcc,"Accuracy_SpeedAcc<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Drift [Fixed]")
+
+hist(Accuracy_SpeedAcc$Accuracy_SpeedAcc,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Accuracy_SpeedAcc = traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed
+Accuracy_SpeedAcc = as.data.frame(Accuracy_SpeedAcc)
+h = (hypothesis(Accuracy_SpeedAcc,"Accuracy_SpeedAcc<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Threshold [Fixed]")
+
+hist(Accuracy_SpeedAcc$Accuracy_SpeedAcc,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) VS. Accuracy vs. Speed (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_Speed_Fixed) - (traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed)  
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Drift [Fixed]")
+
+hist(Difference$Difference,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) VS. Accuracy vs. Speed (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_Speed_Fixed) - (traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed)  
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Threshold [Fixed]")
+
+hist(Difference$Difference,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+### Acc vs. Speed X Fixed vs. Varying drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_Speed_Fixed) - (traces$v_Acc_Varying - traces$v_Speed_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. Speed X Fixed vs. Varying [Drift]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. Speed X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. Speed X Fixed vs. Varying threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_Speed_Fixed) - (traces$a_Acc_Varying - traces$a_Speed_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. Speed X Fixed vs. Varying [Threshold]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. Speed X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. SpeedAcc X Fixed vs. Varying drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed) - (traces$v_Acc_Varying - traces$v_SpeedAcc_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. SpeedAcc X Fixed vs. Varying [Drift]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. SpeedAcc X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. SpeedAcc X Fixed vs. Varying threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed) - (traces$a_Acc_Varying - traces$a_SpeedAcc_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. SpeedAcc X Fixed vs. Varying [Threshold]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. SpeedAcc X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Speed varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Varying - traces$v_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Speed varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Varying - traces$a_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+
+### Speed & Accuracy varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+
+SpeedAccuracy_Goal = traces$v_SpeedAcc_Varying - traces$v_SpeedAcc_Fixed
+SpeedAccuracy_Goal = as.data.frame(SpeedAccuracy_Goal)
+h = (hypothesis(SpeedAccuracy_Goal,"SpeedAccuracy_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed & Accuracy (varying vs. fixed)")
+
+
+hist(SpeedAccuracy_Goal$SpeedAccuracy_Goal,col="lightblue", main="SpeedAcc Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Speed & Accuracy varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+SpeedAccuracy_Goal = traces$a_SpeedAcc_Varying - traces$a_SpeedAcc_Fixed
+SpeedAccuracy_Goal = as.data.frame(SpeedAccuracy_Goal)
+h = (hypothesis(SpeedAccuracy_Goal,"SpeedAccuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed & Accuracy (varying vs. fixed)")
+
+hist(SpeedAccuracy_Goal$SpeedAccuracy_Goal,col="lightblue", main="SpeedAcc Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Accuracy varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Varying - traces$v_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Varying - traces$a_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+## Differences
+
+
+```{r, message=FALSE}
+
+### Difference between the conditions ####
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_AccMinSpeed_Varying',
+                                                'v_AccMinSpeedAcc_Varying',
+                                                'v_SpeedAccMinSpeed_Varying',
+                                                'v_AccMinSpeed_Fixed',
+                                                'v_AccMinSpeedAcc_Fixed',
+                                                'v_SpeedAccMinSpeed_Fixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_AccMinSpeed_Varying',
+                                               'a_AccMinSpeedAcc_Varying',
+                                               'a_SpeedAccMinSpeed_Varying',
+                                               'a_AccMinSpeed_Fixed',
+                                               'a_AccMinSpeedAcc_Fixed',
+                                               'a_SpeedAccMinSpeed_Fixed'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  facet_wrap(vars(factor)) +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(-0.1,1.1)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+# ggsave("Mixed_ae_only_VAT.tiff", units="in", width=15, height=4, dpi=400, compression = 'lzw')
+
+kable(va)
+
+
+
+```
+
+
+## Non-decision time
+
+
+```{r, message=FALSE}
+
+# NDT
+NDT <- NDT %>% separate(parameter,c('parameter','factor'),'_')
+
+labels <- c('NDT')
+
+NDT$factor = as.factor(NDT$factor)
+
+NDT$parameter<-factor(NDT$parameter,labels=c('NDT'))
+
+# Plot
+PlotNDT<-ggplot(NDT,aes(x=parameter, y=Mean,fill=factor)) +
+  geom_bar(stat="identity", position=position_dodge(width = 0.5),width=0.5) +
+  geom_errorbar(width=.1, size=1, position=position_dodge(width = .5),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  ggtitle('NDT')+
+  # ylim(-0.2,0.5)+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) +
+  scale_x_discrete(labels= labels) +
+        scale_fill_manual(name="",values=c(rgb(0.6, 0.6, 0.6),rgb(0.8, 0.8, 0.8),rgb(0.7, 0.7, 0.7)))
+PlotNDT
+
+kable(NDT)
+
+
+# ggsave("Mixed_ae_only_VAT_NDT.tiff", units="in", width=15, height=4, dpi=400, compression = 'lzw')
+
+```
+
+
+
+
+
+
+
+
+
+# Main analyses - Interval type x Block type on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed2/modelMixed2_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed2/modelMixed2_traces.csv')
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.blockType..Sum..S.Varying.,
+                                 
+                                 v_Intercept,
+                                 v_C.intervalType..Poly..Linear,
+                                 v_C.intervalType..Poly..Quadratic,
+                                 v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.blockType..Sum..S.Varying.,
+                                 
+                                 t_Intercept,
+                                 t_C.intervalType..Poly..Linear,
+                                 t_C.intervalType..Poly..Quadratic,
+                                 t_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 t_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 t_C.blockType..Sum..S.Varying.)%>%
+                          
+      mutate(a_Intercept = 0.5 * a_Intercept,
+                                 a_C.intervalType..Poly..Linear = 0.5 * a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic = 0.5 * a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+             a_C.blockType..Sum..S.Fixed. = 0.5 * a_C.blockType..Sum..S.Varying.)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed2/modelMixed2_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,blockType)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+## Import the posteriors
+
+### Transform the traces
+
+```{r, message=FALSE}
+traces = read.csv('output/Mixed/ae_only/modelMixed2/modelMixed2_traces.csv')
+
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.blockType..Sum..S.Varying.,
+                                 v_Intercept,
+                                 v_C.intervalType..Poly..Linear,
+                                 v_C.intervalType..Poly..Quadratic,
+                                 v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.blockType..Sum..S.Varying.,
+                                 
+                                 t_Intercept,
+                                 t_C.intervalType..Poly..Linear,
+                                 t_C.intervalType..Poly..Quadratic,
+                                 t_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 t_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 t_C.blockType..Sum..S.Varying.)%>%
+                          
+      mutate(a_Intercept = 0.5 * a_Intercept,
+                                 a_C.intervalType..Poly..Linear = 0.5 * a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic = 0.5 * a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+             a_C.blockType..Sum..S.Fixed. = 0.5 * a_C.blockType..Sum..S.Varying.)
+
+
+
+traces<-traces %>% dplyr::mutate(a_Fixed = a_Intercept - a_C.blockType..Sum..S.Varying.,
+                                 a_Varying = a_Intercept + a_C.blockType..Sum..S.Varying.,
+                                 
+                                 a_C.intervalType..Poly..Linear_Fixed = a_C.intervalType..Poly..Linear - a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Linear_Varying = a_C.intervalType..Poly..Linear + a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 
+                                 a_C.intervalType..Poly..Quadratic_Fixed = a_C.intervalType..Poly..Quadratic - a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic_Varying = a_C.intervalType..Poly..Quadratic + a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 
+                                 
+                                 v_Fixed = v_Intercept - v_C.blockType..Sum..S.Varying.,
+                                 v_Varying = v_Intercept + v_C.blockType..Sum..S.Varying.,
+                                 
+                                 v_C.intervalType..Poly..Linear_Fixed = v_C.intervalType..Poly..Linear - v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Linear_Varying = v_C.intervalType..Poly..Linear + v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 
+                                 v_C.intervalType..Poly..Quadratic_Fixed = v_C.intervalType..Poly..Quadratic - v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic_Varying = v_C.intervalType..Poly..Quadratic + v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 
+                                 t_Fixed = t_Intercept - t_C.blockType..Sum..S.Varying.,
+                                 t_Varying = t_Intercept + t_C.blockType..Sum..S.Varying.,
+
+                                 t_C.intervalType..Poly..Linear_Fixed = t_C.intervalType..Poly..Linear - t_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 t_C.intervalType..Poly..Linear_Varying = t_C.intervalType..Poly..Linear + t_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                  
+                                 t_C.intervalType..Poly..Quadratic_Fixed = t_C.intervalType..Poly..Quadratic - t_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 t_C.intervalType..Poly..Quadratic_Varying = t_C.intervalType..Poly..Quadratic + t_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.)
+                                 
+
+traces<-traces %>% dplyr::mutate(a_Speed_Varying = a_Varying - 0.7071068 * a_C.intervalType..Poly..Linear_Varying + 0.4082483 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_Speed_Fixed = a_Fixed - 0.7071068 * a_C.intervalType..Poly..Linear_Fixed + 0.4082483 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 a_Acc_Varying = a_Varying - 0.8164966 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_Acc_Fixed = a_Fixed - 0.8164966 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 a_SpeedAcc_Varying = a_Varying + 0.7071068 * a_C.intervalType..Poly..Linear_Varying + 0.4082483 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_SpeedAcc_Fixed = a_Fixed + 0.7071068 * a_C.intervalType..Poly..Linear_Fixed + 0.4082483 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 
+                                 v_Speed_Varying = v_Varying - 0.7071068 * v_C.intervalType..Poly..Linear_Varying + 0.4082483 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_Speed_Fixed = v_Fixed - 0.7071068 * v_C.intervalType..Poly..Linear_Fixed + 0.4082483 * v_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 v_Acc_Varying = v_Varying - 0.8164966 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_Acc_Fixed = v_Fixed - 0.8164966 * v_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 v_SpeedAcc_Varying = v_Varying + 0.7071068 * v_C.intervalType..Poly..Linear_Varying + 0.4082483 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_SpeedAcc_Fixed = v_Fixed + 0.7071068 * v_C.intervalType..Poly..Linear_Fixed + 0.4082483 * v_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 
+                                 t_Speed_Varying = t_Varying - 0.7071068 * t_C.intervalType..Poly..Linear_Varying + 0.4082483 * t_C.intervalType..Poly..Quadratic_Varying,
+                                 t_Speed_Fixed = t_Fixed - 0.7071068 * t_C.intervalType..Poly..Linear_Fixed + 0.4082483 * t_C.intervalType..Poly..Quadratic_Fixed,
+
+                                 t_Acc_Varying = t_Varying - 0.8164966 * t_C.intervalType..Poly..Quadratic_Varying,
+                                 t_Acc_Fixed = t_Fixed - 0.8164966 * t_C.intervalType..Poly..Quadratic_Fixed,
+
+                                 t_SpeedAcc_Varying = t_Varying + 0.7071068 * t_C.intervalType..Poly..Linear_Varying + 0.4082483 * t_C.intervalType..Poly..Quadratic_Varying,
+                                 t_SpeedAcc_Fixed = t_Fixed + 0.7071068 * t_C.intervalType..Poly..Linear_Fixed + 0.4082483 * t_C.intervalType..Poly..Quadratic_Fixed)
+
+
+traces<-traces %>% dplyr::mutate(a_AccMinSpeed_Varying = a_Acc_Varying - a_Speed_Varying,
+                                 a_AccMinSpeedAcc_Varying = a_Acc_Varying - a_SpeedAcc_Varying,
+                                 a_SpeedAccMinSpeed_Varying = a_SpeedAcc_Varying - a_Speed_Varying,
+                                 
+                                 a_AccMinSpeed_Fixed = a_Acc_Fixed - a_Speed_Fixed,
+                                 a_AccMinSpeedAcc_Fixed = a_Acc_Fixed - a_SpeedAcc_Fixed,
+                                 a_SpeedAccMinSpeed_Fixed = a_SpeedAcc_Fixed - a_Speed_Fixed,
+                                 
+                                 v_AccMinSpeed_Varying = v_Acc_Varying - v_Speed_Varying,
+                                 v_AccMinSpeedAcc_Varying = v_Acc_Varying - v_SpeedAcc_Varying,
+                                 v_SpeedAccMinSpeed_Varying = v_SpeedAcc_Varying - v_Speed_Varying,
+                                 
+                                 v_AccMinSpeed_Fixed = v_Acc_Fixed - v_Speed_Fixed,
+                                 v_AccMinSpeedAcc_Fixed = v_Acc_Fixed - v_SpeedAcc_Fixed,
+                                 v_SpeedAccMinSpeed_Fixed = v_SpeedAcc_Fixed - v_Speed_Fixed,
+                                 
+                                 t_AccMinSpeed_Varying = t_Acc_Varying - t_Speed_Varying,
+                                 t_AccMinSpeedAcc_Varying = t_Acc_Varying - t_SpeedAcc_Varying,
+                                 t_SpeedAccMinSpeed_Varying = t_SpeedAcc_Varying - t_Speed_Varying,
+                                
+                                 t_AccMinSpeed_Fixed = t_Acc_Fixed - t_Speed_Fixed,
+                                 t_AccMinSpeedAcc_Fixed = t_Acc_Fixed - t_SpeedAcc_Fixed,
+                                 t_SpeedAccMinSpeed_Fixed = t_SpeedAcc_Fixed - t_Speed_Fixed)
+```
+
+### Summarry of the parameter estimates
+
+```{r, message=FALSE}
+
+
+
+```
+
+### Summarize the posteriors
+
+```{r, message=FALSE}
+
+
+
+
+```
+
+
+## Each condition
+
+### Bar plot
+
+```{r, message=FALSE}
+
+
+
+### Separate conditions ####
+
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Speed_Fixed',
+                                                'v_Acc_Fixed',
+                                                'v_SpeedAcc_Fixed',
+                                                'v_Speed_Varying',
+                                                'v_Acc_Varying',
+                                                'v_SpeedAcc_Varying'))
+
+threshold<- output %>% filter(parameter %in% c('a_Speed_Fixed',
+                                                'a_Acc_Fixed',
+                                                'a_SpeedAcc_Fixed',
+                                                'a_Speed_Varying',
+                                                'a_Acc_Varying',
+                                                'a_SpeedAcc_Varying'))
+
+NDT<- output %>% filter(parameter %in% c('t_Speed_Fixed',
+                                                't_Acc_Fixed',
+                                                't_SpeedAcc_Fixed',
+                                                't_Speed_Varying',
+                                                't_Acc_Varying',
+                                                't_SpeedAcc_Varying'))
+# VA
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  facet_wrap(vars(factor)) +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,4)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+# ggsave("Mixed_ae_only_VAT.tiff", units="in", width=15, height=4, dpi=400, compression = 'lzw')
+
+
+kable(va)
+
+
+
+
+```
+
+
+### Points in 2D
+
+```{r, message=FALSE}
+
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Speed_Fixed',
+                                                'v_Acc_Fixed',
+                                                'v_SpeedAcc_Fixed',
+                                                'v_Speed_Varying',
+                                                'v_Acc_Varying',
+                                                'v_SpeedAcc_Varying'))
+
+threshold<- output %>% filter(parameter %in% c('a_Speed_Fixed',
+                                                'a_Acc_Fixed',
+                                                'a_SpeedAcc_Fixed',
+                                                'a_Speed_Varying',
+                                                'a_Acc_Varying',
+                                                'a_SpeedAcc_Varying'))
+
+
+# VA
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+va$parameter = c("Drift","Drift","Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = va, 
+            id_cols = c(factor,fixed), 
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed","Speed", "Accuracy","Accuracy","Speed & Accuracy","Speed & Accuracy" )
+
+# data$factor = paste(data$factor,data$fixed,sep=" - ")
+
+data$factor = factor(data$factor, levels = c("Speed", "Speed & Accuracy", "Accuracy"))
+levels(data$factor) = c("Speed","Speed & Accuracy" , "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape = fixed)) +
+  geom_point(size=6) +
+  # geom_line(aes(group=fixed),linewidth=1, color="black")+
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(1.9,3.4))+
+  scale_y_continuous(limits = c(0.4,1.2))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none")  
+
+p
+
+
+```
+
+
+## Stats
+
+### Accuracy vs. speed (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = traces$v_Acc_Fixed - traces$v_Speed_Fixed
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Drift [Fixed]")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Speed- Acc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+
+### Accuracy vs. speed (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = traces$a_Acc_Fixed - traces$a_Speed_Fixed
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Threshold [Fixed]")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Acc - Speed [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Accuracy_SpeedAcc = traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed
+Accuracy_SpeedAcc = as.data.frame(Accuracy_SpeedAcc)
+h = (hypothesis(Accuracy_SpeedAcc,"Accuracy_SpeedAcc<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Drift [Fixed]")
+
+hist(Accuracy_SpeedAcc$Accuracy_SpeedAcc,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Accuracy_SpeedAcc = traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed
+Accuracy_SpeedAcc = as.data.frame(Accuracy_SpeedAcc)
+h = (hypothesis(Accuracy_SpeedAcc,"Accuracy_SpeedAcc<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Threshold [Fixed]")
+
+hist(Accuracy_SpeedAcc$Accuracy_SpeedAcc,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) VS. Accuracy vs. Speed (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_Speed_Fixed) - (traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed)  
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Drift [Fixed]")
+
+hist(Difference$Difference,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) VS. Accuracy vs. Speed (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_Speed_Fixed) - (traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed)  
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Threshold [Fixed]")
+
+hist(Difference$Difference,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+### Acc vs. Speed X Fixed vs. Varying drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_Speed_Fixed) - (traces$v_Acc_Varying - traces$v_Speed_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. Speed X Fixed vs. Varying [Drift]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. Speed X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. Speed X Fixed vs. Varying threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_Speed_Fixed) - (traces$a_Acc_Varying - traces$a_Speed_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. Speed X Fixed vs. Varying [Threshold]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. Speed X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. SpeedAcc X Fixed vs. Varying drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed) - (traces$v_Acc_Varying - traces$v_SpeedAcc_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. SpeedAcc X Fixed vs. Varying [Drift]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. SpeedAcc X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. SpeedAcc X Fixed vs. Varying threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed) - (traces$a_Acc_Varying - traces$a_SpeedAcc_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. SpeedAcc X Fixed vs. Varying [Threshold]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. SpeedAcc X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Speed varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Varying - traces$v_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Speed varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Varying - traces$a_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+
+### Speed & Accuracy varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+
+SpeedAccuracy_Goal = traces$v_SpeedAcc_Varying - traces$v_SpeedAcc_Fixed
+SpeedAccuracy_Goal = as.data.frame(SpeedAccuracy_Goal)
+h = (hypothesis(SpeedAccuracy_Goal,"SpeedAccuracy_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed & Accuracy (varying vs. fixed)")
+
+
+hist(SpeedAccuracy_Goal$SpeedAccuracy_Goal,col="lightblue", main="SpeedAcc Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Speed & Accuracy varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+SpeedAccuracy_Goal = traces$a_SpeedAcc_Varying - traces$a_SpeedAcc_Fixed
+SpeedAccuracy_Goal = as.data.frame(SpeedAccuracy_Goal)
+h = (hypothesis(SpeedAccuracy_Goal,"SpeedAccuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed & Accuracy (varying vs. fixed)")
+
+hist(SpeedAccuracy_Goal$SpeedAccuracy_Goal,col="lightblue", main="SpeedAcc Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Accuracy varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Varying - traces$v_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Varying - traces$a_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+## Differences
+
+
+```{r, message=FALSE}
+
+### Difference between the conditions ####
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_AccMinSpeed_Varying',
+                                                'v_AccMinSpeedAcc_Varying',
+                                                'v_SpeedAccMinSpeed_Varying',
+                                                'v_AccMinSpeed_Fixed',
+                                                'v_AccMinSpeedAcc_Fixed',
+                                                'v_SpeedAccMinSpeed_Fixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_AccMinSpeed_Varying',
+                                               'a_AccMinSpeedAcc_Varying',
+                                               'a_SpeedAccMinSpeed_Varying',
+                                               'a_AccMinSpeed_Fixed',
+                                               'a_AccMinSpeedAcc_Fixed',
+                                               'a_SpeedAccMinSpeed_Fixed'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  facet_wrap(vars(factor)) +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(-0.1,1.1)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+# ggsave("Mixed_ae_only_VAT.tiff", units="in", width=15, height=4, dpi=400, compression = 'lzw')
+
+kable(va)
+
+
+
+```
+
+
+## Non-decision time
+
+
+```{r, message=FALSE}
+
+# NDT
+NDT <- NDT %>% separate(parameter,c('parameter','factor'),'_')
+
+labels <- c('NDT')
+
+NDT$factor = as.factor(NDT$factor)
+
+NDT$parameter<-factor(NDT$parameter,labels=c('NDT'))
+
+# Plot
+PlotNDT<-ggplot(NDT,aes(x=parameter, y=Mean,fill=factor)) +
+  geom_bar(stat="identity", position=position_dodge(width = 0.5),width=0.5) +
+  geom_errorbar(width=.1, size=1, position=position_dodge(width = .5),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  ggtitle('NDT')+
+  # ylim(-0.2,0.5)+
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) +
+  scale_x_discrete(labels= labels) +
+        scale_fill_manual(name="",values=c(rgb(0.6, 0.6, 0.6),rgb(0.8, 0.8, 0.8),rgb(0.7, 0.7, 0.7)))
+PlotNDT
+
+kable(NDT)
+
+
+# ggsave("Mixed_ae_only_VAT_NDT.tiff", units="in", width=15, height=4, dpi=400, compression = 'lzw')
+
+```
+
+
+
+
+
+
+
+
+
+
+
+# Main analyses  - Intercept on NDT
+
+
+## Rhats
+
+```{r, message=FALSE}
+# Import the Rhats
+rhats <- fread('output/Mixed/ae_only/modelMixed3/modelMixed3_RHat.csv', header = T)
+colnames(rhats) = c("parameter","Rhat")
+
+
+# Plot the Rhats
+
+# Set parameters for plots
+set_theme(base =theme_bw(base_size = 15, base_family = "")) # font size and theme
+myColors = brewer.pal(3,"Set2") #colors
+barfill <- "#4271AE"
+barlines <- "#1F3552"
+
+p =ggplot(rhats, aes(Rhat)) +
+  geom_histogram(colour = barlines, fill = barfill,binwidth = 0.01)+ #colour = barlines, fill = barfill
+  theme_bw() +
+  labs(x = "Rhat", y = "Count\n")+
+  theme(axis.line = element_line(size=1, colour = "black"),
+        panel.grid.major = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.grid.minor = element_line(colour = "grey",size = 0.1,linetype = "dashed"),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(size = 18,  face = "bold",hjust = 0.5),
+        text=element_text(colour="black", size = 14),
+        axis.text.x=element_text(colour="black", size = 14),
+        axis.text.y=element_text(colour="black", size = 14, face = "plain",hjust=0),
+        axis.title=element_text(size=18,colour = "black",vjust = 1))
+
+p
+
+
+# Print the names of the low Rhat parameters
+highRhats = subset(rhats,rhats$Rhat>1.1)
+highRhats
+```
+
+
+
+## Trace plots
+
+
+```{r, message=FALSE}
+traces <- read.csv('output/Mixed/ae_only/modelMixed3/modelMixed3_traces.csv')
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.blockType..Sum..S.Varying.,
+                                 v_Intercept,
+                                 v_C.intervalType..Poly..Linear,
+                                 v_C.intervalType..Poly..Quadratic,
+                                 v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.blockType..Sum..S.Varying.,
+                                 
+                                 t)%>%
+                          
+      mutate(a_Intercept = 0.5 * a_Intercept,
+                                 a_C.intervalType..Poly..Linear = 0.5 * a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic = 0.5 * a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+             a_C.blockType..Sum..S.Fixed. = 0.5 * a_C.blockType..Sum..S.Varying.)
+
+
+
+# For each parameter
+colNames= names(traces)
+
+for (parameter in colNames) {
+
+  #Plotting
+  plot_data1 = traces[1:2000,]
+  plot_data2 = traces[2001:4000,]
+  plot_data3 = traces[4001:6000,]
+  plot_data4 = traces[6001:8000,]
+  plot_data5 = traces[8001:10000,]
+
+
+
+  traces_plot = ggplot(NULL) +
+
+    # Chain 1
+    geom_line(data=plot_data1,mapping =aes_string(y=parameter,x = 1:2000), colour="red")+
+
+    # Chain 2
+    geom_line(data=plot_data2,mapping =aes_string(y=parameter,x = 1:2000), colour="royalblue1")+
+
+    # Chain 3
+    geom_line(data=plot_data3,mapping =aes_string(y=parameter,x = 1:2000), colour="springgreen")+
+
+    # Chain 4
+    geom_line(data=plot_data4,mapping =aes_string(y=parameter,x = 1:2000), colour="grey0")+
+
+    # Chain 5
+    geom_line(data=plot_data5,mapping =aes_string(y=parameter,x = 1:2000), colour="coral")+
+    theme_classic(base_size = 18) +
+
+    ggtitle(parameter)  + ylab("Parameter value") + xlab("Sample")
+
+
+
+  print(traces_plot)
+}
+```
+
+
+
+
+## PPCs
+
+
+```{r, message=FALSE}
+
+df.ppc <- fread('output/Mixed/ae_only/modelMixed3/modelMixed3_simData.csv') %>%
+  mutate(simResponse=rt_sampled>0,
+         Response=rt>0,
+         rt_unsigned = abs(rt),
+         rt_sampled_unsigned = abs(rt_sampled))
+
+df.ppc.sim <- df.ppc %>% filter(sample==0,rt_sampled_unsigned<=3)
+
+df.ppc.data <- df.ppc %>% filter(sample==0,rt_unsigned<=3)
+
+ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
+
+ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
+
+# Density plots with means
+ggplot(df.ppc.data %>% filter(Response),
+       aes(x=rt_unsigned,color='Correct',linetype='True')) +
+  geom_density(size=1) +
+  geom_density(data=df.ppc.data %>% filter(!Response),
+               size=1,
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
+  ) +
+  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
+  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+               size=1,
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
+  ) + geom_hline(yintercept=0) + ggdensity +
+  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,blockType)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+```
+
+
+
+
+
+## Import the posteriors
+
+### Transform the traces
+
+```{r, message=FALSE}
+traces = read.csv('output/Mixed/ae_only/modelMixed3/modelMixed3_traces.csv')
+
+
+
+traces<-traces %>% dplyr::select(a_Intercept,
+                                 a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.blockType..Sum..S.Varying.,
+                                 v_Intercept,
+                                 v_C.intervalType..Poly..Linear,
+                                 v_C.intervalType..Poly..Quadratic,
+                                 v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.blockType..Sum..S.Varying.,
+                                 
+                                 t)%>%
+                          
+      mutate(a_Intercept = 0.5 * a_Intercept,
+                                 a_C.intervalType..Poly..Linear = 0.5 * a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic = 0.5 * a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+             a_C.blockType..Sum..S.Fixed. = 0.5 * a_C.blockType..Sum..S.Varying.)
+
+
+
+traces<-traces %>% dplyr::mutate(a_Fixed = mean(a_Intercept) - a_C.blockType..Sum..S.Varying.,
+                                 a_Varying = mean(a_Intercept) + a_C.blockType..Sum..S.Varying.,
+                                 
+                                 a_C.intervalType..Poly..Linear_Fixed = a_C.intervalType..Poly..Linear - a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Linear_Varying = a_C.intervalType..Poly..Linear + a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 
+                                 a_C.intervalType..Poly..Quadratic_Fixed = a_C.intervalType..Poly..Quadratic - a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic_Varying = a_C.intervalType..Poly..Quadratic + a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 
+                                 
+                                 v_Fixed = mean(v_Intercept) - v_C.blockType..Sum..S.Varying.,
+                                 v_Varying = mean(v_Intercept) + v_C.blockType..Sum..S.Varying.,
+                                 
+                                 v_C.intervalType..Poly..Linear_Fixed = v_C.intervalType..Poly..Linear - v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Linear_Varying = v_C.intervalType..Poly..Linear + v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 
+                                 v_C.intervalType..Poly..Quadratic_Fixed = v_C.intervalType..Poly..Quadratic - v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic_Varying = v_C.intervalType..Poly..Quadratic + v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.)
+                                 
+
+traces<-traces %>% dplyr::mutate(a_Speed_Varying = a_Varying - 0.7071068 * a_C.intervalType..Poly..Linear_Varying + 0.4082483 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_Speed_Fixed = a_Fixed - 0.7071068 * a_C.intervalType..Poly..Linear_Fixed + 0.4082483 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 a_Acc_Varying = a_Varying - 0.8164966 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_Acc_Fixed = a_Fixed - 0.8164966 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 a_SpeedAcc_Varying = a_Varying + 0.7071068 * a_C.intervalType..Poly..Linear_Varying + 0.4082483 * a_C.intervalType..Poly..Quadratic_Varying,
+                                 a_SpeedAcc_Fixed = a_Fixed + 0.7071068 * a_C.intervalType..Poly..Linear_Fixed + 0.4082483 * a_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 
+                                 v_Speed_Varying = v_Varying - 0.7071068 * v_C.intervalType..Poly..Linear_Varying + 0.4082483 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_Speed_Fixed = v_Fixed - 0.7071068 * v_C.intervalType..Poly..Linear_Fixed + 0.4082483 * v_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 v_Acc_Varying = v_Varying - 0.8164966 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_Acc_Fixed = v_Fixed - 0.8164966 * v_C.intervalType..Poly..Quadratic_Fixed,
+                                 
+                                 v_SpeedAcc_Varying = v_Varying + 0.7071068 * v_C.intervalType..Poly..Linear_Varying + 0.4082483 * v_C.intervalType..Poly..Quadratic_Varying,
+                                 v_SpeedAcc_Fixed = v_Fixed + 0.7071068 * v_C.intervalType..Poly..Linear_Fixed + 0.4082483 * v_C.intervalType..Poly..Quadratic_Fixed)
+
+
+traces<-traces %>% dplyr::mutate(a_AccMinSpeed_Varying = a_Acc_Varying - a_Speed_Varying,
+                                 a_AccMinSpeedAcc_Varying = a_Acc_Varying - a_SpeedAcc_Varying,
+                                 a_SpeedAccMinSpeed_Varying = a_SpeedAcc_Varying - a_Speed_Varying,
+                                 
+                                 a_AccMinSpeed_Fixed = a_Acc_Fixed - a_Speed_Fixed,
+                                 a_AccMinSpeedAcc_Fixed = a_Acc_Fixed - a_SpeedAcc_Fixed,
+                                 a_SpeedAccMinSpeed_Fixed = a_SpeedAcc_Fixed - a_Speed_Fixed,
+                                 
+                                 v_AccMinSpeed_Varying = v_Acc_Varying - v_Speed_Varying,
+                                 v_AccMinSpeedAcc_Varying = v_Acc_Varying - v_SpeedAcc_Varying,
+                                 v_SpeedAccMinSpeed_Varying = v_SpeedAcc_Varying - v_Speed_Varying,
+                                 
+                                 v_AccMinSpeed_Fixed = v_Acc_Fixed - v_Speed_Fixed,
+                                 v_AccMinSpeedAcc_Fixed = v_Acc_Fixed - v_SpeedAcc_Fixed,
+                                 v_SpeedAccMinSpeed_Fixed = v_SpeedAcc_Fixed - v_Speed_Fixed)
+```
+
+### Summarry of the parameter estimates
+
+```{r, message=FALSE}
+summary = read.csv('output/Mixed/ae_only/modelMixed3/modelMixed3_traces.csv')
+
+
+
+summary<-summary %>% dplyr::select(a_Intercept,
+                                a_C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 
+                                 a_scaledRunningTime,
+                                 
+                                 v_Intercept,
+                                 v_C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Linear,
+                                 v_C.intervalType..Poly..Quadratic,
+                                 v_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 v_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+                                 v_C.congruency..Sum..S.incongruent.,
+                                 
+                                 t,
+                                 z_C.congruency..Sum..S.incongruent.,
+                                 p_outlier)%>%
+                          
+      mutate(a_Intercept = 0.5 * a_Intercept,
+                                 a_C.intervalType..Poly..Linear = 0.5 * a_C.intervalType..Poly..Linear,
+                                 a_C.intervalType..Poly..Quadratic = 0.5 * a_C.intervalType..Poly..Quadratic,
+                                 a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Linear.C.blockType..Sum..S.Varying.,
+                                 a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying. = 0.5*a_C.intervalType..Poly..Quadratic.C.blockType..Sum..S.Varying.,
+             a_C.blockType..Sum..S.Fixed. = 0.5 * a_C.blockType..Sum..S.Varying.,
+             a_scaledRunningTime = 0.5 * a_scaledRunningTime)
+
+
+
+
+summary <- test.params(summary)
+summary$CI_upper <- round(summary$CI_upper,2)
+summary$CI_lower <- round(summary$CI_lower,2)
+summary$CI <- paste0(summary$CI_lower,", ",summary$CI_upper)
+summary$Mean <- round(summary$Mean,2)
+summary$pvalue <- round(summary$pvalue,2)
+
+
+kable(summary)
+
+```
+
+
+
+
+
+## Each condition
+
+### Bar plot
+
+```{r, message=FALSE}
+
+
+
+### Separate conditions ####
+
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Speed_Fixed',
+                                                'v_Acc_Fixed',
+                                                'v_SpeedAcc_Fixed',
+                                                'v_Speed_Varying',
+                                                'v_Acc_Varying',
+                                                'v_SpeedAcc_Varying'))
+
+threshold<- output %>% filter(parameter %in% c('a_Speed_Fixed',
+                                                'a_Acc_Fixed',
+                                                'a_SpeedAcc_Fixed',
+                                                'a_Speed_Varying',
+                                                'a_Acc_Varying',
+                                                'a_SpeedAcc_Varying'))
+
+NDT<- output %>% filter(parameter %in% c('t_Speed',
+                                         't_Acc',
+                                         't_SpeedAcc'))
+# VA
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  facet_wrap(vars(factor)) +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(0,4)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+# ggsave("Mixed_ae_only_VAT.tiff", units="in", width=15, height=4, dpi=400, compression = 'lzw')
+
+
+kable(va)
+
+
+mean(traces$t)
+
+```
+
+
+### Points in 2D
+
+```{r, message=FALSE}
+
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_Speed_Fixed',
+                                                'v_Acc_Fixed',
+                                                'v_SpeedAcc_Fixed',
+                                                'v_Speed_Varying',
+                                                'v_Acc_Varying',
+                                                'v_SpeedAcc_Varying'))
+
+threshold<- output %>% filter(parameter %in% c('a_Speed_Fixed',
+                                                'a_Acc_Fixed',
+                                                'a_SpeedAcc_Fixed',
+                                                'a_Speed_Varying',
+                                                'a_Acc_Varying',
+                                                'a_SpeedAcc_Varying'))
+
+
+# VA
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+
+va$parameter = c("Drift","Drift","Drift","Drift","Drift","Drift","Threshold","Threshold","Threshold","Threshold","Threshold","Threshold")
+
+# Long to wide
+data = pivot_wider(data = va, 
+            id_cols = c(factor,fixed), 
+            names_from = parameter, 
+            values_from = c("Mean","CI_lower","CI_upper"))
+
+data$factor = c("Speed","Speed", "Accuracy","Accuracy","Speed & Accuracy","Speed & Accuracy" )
+
+# data$factor = paste(data$factor,data$fixed,sep=" - ")
+
+data$factor = factor(data$factor, levels = c("Speed", "Speed & Accuracy", "Accuracy"))
+levels(data$factor) = c("Speed","Speed & Accuracy" , "Accuracy")
+# data$factor = c("Speed", "Accuracy","Speed & Accuracy" )
+
+p<-ggplot(data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape = fixed)) +
+  geom_point(size=6) +
+  # geom_line(aes(group=fixed),linewidth=1, color="black")+
+  geom_errorbar(width=0, linewidth=1.1, position=position_dodge(width = .6),aes(xmin=CI_lower_Drift,xmax=CI_upper_Drift,linetype=fixed)) +
+  geom_errorbar(width=0, linewidth=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower_Threshold,ymax=CI_upper_Threshold,linetype=fixed))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(2.2,4.2))+
+  scale_y_continuous(limits = c(0.5,1.3))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none")  
+
+p
+
+Fig3.DDM = p
+
+
+
+```
+
+
+## Stats
+
+### Mini meta-analysis
+
+
+```{r, message=FALSE}
+
+##### Accuracy vs. Speed
+
+# Drift - A-S fixed
+Diff_Fix = traces$v_Acc_Fixed - traces$v_Speed_Fixed 
+Diff_Fix = as.data.frame(Diff_Fix)
+h = (hypothesis(Diff_Fix,"Diff_Fix<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. Speed Fixed Drift")
+
+# Drift - A-S varying
+Diff_Var = traces$v_Acc_Varying - traces$v_Speed_Varying 
+Diff_Var = as.data.frame(Diff_Var)
+h = (hypothesis(Diff_Var,"Diff_Var<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. Speed Varying Drift")
+
+# Drift - Cost
+Diff = Diff_Fix - Diff_Var
+colnames(Diff) = "Diff"
+h = (hypothesis(Diff,"Diff<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. Speed Varying Drift")
+
+# Threshold - A-S fixed
+Diff_Fix = traces$a_Acc_Fixed - traces$a_Speed_Fixed 
+Diff_Fix = as.data.frame(Diff_Fix)
+h = (hypothesis(Diff_Fix,"Diff_Fix<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. Speed Fixed Threshold")
+
+# Threshold - A-S varying
+Diff_Var = traces$a_Acc_Varying - traces$a_Speed_Varying 
+Diff_Var = as.data.frame(Diff_Var)
+h = (hypothesis(Diff_Var,"Diff_Var<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. Speed Varying Threshold")
+
+# Threshold - Cost
+Diff = Diff_Fix - Diff_Var
+colnames(Diff) = "Diff"
+h = (hypothesis(Diff,"Diff<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. Speed Varying Threshold")
+
+# Distance
+
+Distance_Fixed_A_S = sqrt((traces$v_Acc_Fixed - traces$v_Speed_Fixed)**2 + (traces$a_Acc_Fixed - traces$a_Speed_Fixed)**2)
+Distance_Varying_A_S = sqrt((traces$v_Acc_Varying - traces$v_Speed_Varying)**2 + (traces$a_Acc_Varying - traces$a_Speed_Varying)**2)
+Distance_Diff_A_S = Distance_Fixed_A_S - Distance_Varying_A_S
+kable(test.params(as.data.frame(Distance_Diff_A_S)))
+
+##### Accuracy vs. Speed Accuracy
+
+# Drift - A-S fixed
+Diff_Fix = traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed 
+Diff_Fix = as.data.frame(Diff_Fix)
+h = (hypothesis(Diff_Fix,"Diff_Fix<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Fixed Drift")
+
+# Drift - A-S varying
+Diff_Var = traces$v_Acc_Varying - traces$v_SpeedAcc_Varying 
+Diff_Var = as.data.frame(Diff_Var)
+h = (hypothesis(Diff_Var,"Diff_Var<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Varying Drift")
+
+# Drift - Cost
+Diff = Diff_Fix - Diff_Var
+colnames(Diff) = "Diff"
+h = (hypothesis(Diff,"Diff<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Varying Drift")
+
+# Threshold - A-S fixed
+Diff_Fix = traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed 
+Diff_Fix = as.data.frame(Diff_Fix)
+h = (hypothesis(Diff_Fix,"Diff_Fix<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Fixed Threshold")
+
+# Threshold - A-S varying
+Diff_Var = traces$a_Acc_Varying - traces$a_SpeedAcc_Varying 
+Diff_Var = as.data.frame(Diff_Var)
+h = (hypothesis(Diff_Var,"Diff_Var<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Varying Threshold")
+
+# Threshold - Cost
+Diff = Diff_Fix - Diff_Var
+colnames(Diff) = "Diff"
+h = (hypothesis(Diff,"Diff<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Varying Threshold")
+
+# Distance
+Distance_Fixed_A_SA = sqrt((traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed)**2 + (traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed)**2)
+Distance_Varying_A_SA = sqrt((traces$v_Acc_Varying - traces$v_SpeedAcc_Varying)**2 + (traces$a_Acc_Varying - traces$a_SpeedAcc_Varying)**2)
+Distance_Diff_A_SA = Distance_Fixed_A_SA - Distance_Varying_A_SA
+kable(test.params(as.data.frame(Distance_Diff_A_SA)))
+
+
+##### Speed/Accuracy vs. Speed
+
+# Drift - A-S fixed
+Diff_Fix = traces$v_SpeedAcc_Fixed - traces$v_Speed_Fixed 
+Diff_Fix = as.data.frame(Diff_Fix)
+h = (hypothesis(Diff_Fix,"Diff_Fix<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Fixed Drift")
+
+# Drift - A-S varying
+Diff_Var = traces$v_SpeedAcc_Varying - traces$v_Speed_Varying 
+Diff_Var = as.data.frame(Diff_Var)
+h = (hypothesis(Diff_Var,"Diff_Var<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Varying Drift")
+
+# Drift - Cost
+Diff = Diff_Fix - Diff_Var
+colnames(Diff) = "Diff"
+h = (hypothesis(Diff,"Diff<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Varying Drift")
+
+# Threshold - A-S fixed
+Diff_Fix = traces$a_SpeedAcc_Fixed - traces$a_Speed_Fixed 
+Diff_Fix = as.data.frame(Diff_Fix)
+h = (hypothesis(Diff_Fix,"Diff_Fix<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Fixed Threshold")
+
+# Threshold - A-S varying
+Diff_Var = traces$a_SpeedAcc_Varying - traces$a_Speed_Varying 
+Diff_Var = as.data.frame(Diff_Var)
+h = (hypothesis(Diff_Var,"Diff_Var<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Varying Threshold")
+
+# Threshold - Cost
+Diff = Diff_Fix - Diff_Var
+colnames(Diff) = "Diff"
+h = (hypothesis(Diff,"Diff<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Varying Threshold")
+
+# Distance
+Distance_Fixed_SA_S = sqrt((traces$v_SpeedAcc_Fixed - traces$v_Speed_Fixed)**2 + (traces$a_SpeedAcc_Fixed - traces$a_Speed_Fixed)**2)
+Distance_Varying_SA_S = sqrt((traces$v_SpeedAcc_Varying - traces$v_Speed_Varying)**2 + (traces$a_SpeedAcc_Varying - traces$a_Speed_Varying)**2)
+Distance_Diff_SA_S = Distance_Fixed_SA_S - Distance_Varying_SA_S
+kable(test.params(as.data.frame(Distance_Diff_SA_S)))
+
+
+```
+
+### Accuracy vs. speed - drift
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = (traces$v_Acc_Fixed + traces$v_Acc_Varying)/2 - (traces$v_Speed_Fixed + traces$v_Speed_Varying)/2
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Drift")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Speed - Acc", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Accuracy vs. speed - threshold
+
+
+```{r, message=FALSE}
+Speed_Accuracy = (traces$a_Acc_Fixed + traces$a_Acc_Varying)/2 - (traces$a_Speed_Fixed + traces$a_Speed_Varying)/2
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Threshold")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Speed - Acc", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+### Varying vs. Fixed - drift
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = (traces$v_Acc_Varying + traces$v_Speed_Varying)/2 - (traces$v_Acc_Fixed + traces$v_Speed_Fixed)/2
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Varying vs. Fixed Drift")
+
+```
+
+### Varying vs. Fixed - threshold
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = (traces$a_Acc_Varying + traces$a_Speed_Varying)/2 - (traces$a_Acc_Fixed + traces$a_Speed_Fixed)/2
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Varying vs. Fixed Threshold")
+
+```
+
+
+### Accuracy vs. speed & accuracy - drift
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = (traces$v_Acc_Fixed + traces$v_Acc_Varying)/2 - (traces$v_SpeedAcc_Fixed + traces$v_SpeedAcc_Varying)/2
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Drift")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Speed - Acc", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. speed & accuracy - threshold
+
+
+```{r, message=FALSE}
+
+SpeedAcc_Accuracy = (traces$a_Acc_Fixed + traces$a_Acc_Varying)/2 - (traces$a_SpeedAcc_Fixed + traces$a_SpeedAcc_Varying)/2
+SpeedAcc_Accuracy = as.data.frame(SpeedAcc_Accuracy)
+h = (hypothesis(SpeedAcc_Accuracy,"SpeedAcc_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed & accuracy Threshold")
+
+hist(SpeedAcc_Accuracy$SpeedAcc_Accuracy,col="lightblue", main="SpeedAcc - Acc", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+### Speed & accuracy vs. Speed - drift
+
+
+```{r, message=FALSE}
+
+Speed_SpeedAccuracy = (traces$v_SpeedAcc_Fixed + traces$v_SpeedAcc_Varying)/2 - (traces$v_Speed_Fixed + traces$v_Speed_Varying)/2
+Speed_SpeedAccuracy = as.data.frame(Speed_SpeedAccuracy)
+h = (hypothesis(Speed_SpeedAccuracy,"Speed_SpeedAccuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. speed Drift")
+
+hist(Speed_SpeedAccuracy$Speed_SpeedAccuracy,col="lightblue", main="SpeedAcc - Speed", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Speed & accuracy vs. Speed - threshold
+
+
+```{r, message=FALSE}
+
+Speed_SpeedAccuracy = (traces$a_SpeedAcc_Fixed + traces$a_SpeedAcc_Varying)/2 - (traces$a_Speed_Fixed + traces$a_Speed_Varying)/2
+Speed_SpeedAccuracy = as.data.frame(Speed_SpeedAccuracy)
+h = (hypothesis(Speed_SpeedAccuracy,"Speed_SpeedAccuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. speed Threshold")
+
+hist(Speed_SpeedAccuracy$Speed_SpeedAccuracy,col="lightblue", main="SpeedAcc - Speed", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+### Accuracy vs. SpeedAcc  VS. SpeedAcc vs. Speed  - drift
+
+
+```{r, message=FALSE}
+Speed_SpeedAccuracy = (traces$v_SpeedAcc_Fixed + traces$v_SpeedAcc_Varying)/2 - (traces$v_Speed_Fixed + traces$v_Speed_Varying)/2
+
+SpeedAcc_Accuracy = (traces$v_Acc_Fixed + traces$v_Acc_Varying)/2 - (traces$v_SpeedAcc_Fixed + traces$v_SpeedAcc_Varying)/2
+
+
+
+Difference = Speed_SpeedAccuracy - SpeedAcc_Accuracy
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc  VS. SpeedAcc vs. Speed  - drift")
+
+hist(Difference$Difference,col="lightblue", main="Accuracy vs. SpeedAcc  VS. SpeedAcc vs. Speed  - drift", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+### Accuracy vs. SpeedAcc  VS. SpeedAcc vs. Speed  - threshold
+
+
+```{r, message=FALSE}
+
+Speed_SpeedAccuracy = (traces$a_SpeedAcc_Fixed + traces$a_SpeedAcc_Varying)/2 - (traces$a_Speed_Fixed + traces$a_Speed_Varying)/2
+
+SpeedAcc_Accuracy = (traces$a_Acc_Fixed + traces$a_Acc_Varying)/2 - (traces$a_SpeedAcc_Fixed + traces$a_SpeedAcc_Varying)/2
+
+
+
+Difference = Speed_SpeedAccuracy - SpeedAcc_Accuracy
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc  VS. SpeedAcc vs. Speed  - threshold")
+
+hist(Difference$Difference,col="lightblue", main="Accuracy vs. SpeedAcc  VS. SpeedAcc vs. Speed  - threshold", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. speed (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = traces$v_Acc_Fixed - traces$v_Speed_Fixed
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Drift [Fixed]")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Speed- Acc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+
+### Accuracy vs. speed (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Speed_Accuracy = traces$a_Acc_Fixed - traces$a_Speed_Fixed
+Speed_Accuracy = as.data.frame(Speed_Accuracy)
+h = (hypothesis(Speed_Accuracy,"Speed_Accuracy<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. speed Threshold [Fixed]")
+
+hist(Speed_Accuracy$Speed_Accuracy,col="lightblue", main="Acc - Speed [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Accuracy_SpeedAcc = traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed
+Accuracy_SpeedAcc = as.data.frame(Accuracy_SpeedAcc)
+h = (hypothesis(Accuracy_SpeedAcc,"Accuracy_SpeedAcc<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Drift [Fixed]")
+
+hist(Accuracy_SpeedAcc$Accuracy_SpeedAcc,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Accuracy_SpeedAcc = traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed
+Accuracy_SpeedAcc = as.data.frame(Accuracy_SpeedAcc)
+h = (hypothesis(Accuracy_SpeedAcc,"Accuracy_SpeedAcc<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Threshold [Fixed]")
+
+hist(Accuracy_SpeedAcc$Accuracy_SpeedAcc,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+### SpeedAcc vs. Speed (fixed) - drift
+
+
+```{r, message=FALSE}
+
+SpeedAcc_Speed = traces$v_SpeedAcc_Fixed - traces$v_Speed_Fixed
+SpeedAcc_Speed = as.data.frame(SpeedAcc_Speed)
+h = (hypothesis(SpeedAcc_Speed,"SpeedAcc_Speed<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Drift [Fixed]")
+
+hist(SpeedAcc_Speed$SpeedAcc_Speed,col="lightblue", main="SpeedAcc - Speed [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### SpeedAcc vs. Speed (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+SpeedAcc_Speed = traces$a_SpeedAcc_Fixed - traces$a_Speed_Fixed
+SpeedAcc_Speed = as.data.frame(SpeedAcc_Speed)
+h = (hypothesis(SpeedAcc_Speed,"SpeedAcc_Speed<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Threshold [Fixed]")
+
+hist(Accuracy_SpeedAcc$Accuracy_SpeedAcc,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+
+
+### Accuracy vs. SpeedAcc (fixed) VS. Accuracy vs. Speed (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_Speed_Fixed) - (traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed)  
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Drift [Fixed]")
+
+hist(Difference$Difference,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) VS. Accuracy vs. Speed (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_Speed_Fixed) - (traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed)  
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy vs. SpeedAcc Threshold [Fixed]")
+
+hist(Difference$Difference,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+
+
+### SpeedAcc vs. Speed (fixed) VS. Accuracy vs. SpeedAcc (fixed) - drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_SpeedAcc_Fixed - traces$v_Speed_Fixed) - (traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed)  
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc-Speed vs. Acc-SpeedAcc Drift [Fixed]")
+
+hist(Difference$Difference,col="lightblue", main="Acc - SpeedAcc-Speed vs. Acc-SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy vs. SpeedAcc (fixed) VS. Accuracy vs. Speed (fixed) - threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_SpeedAcc_Fixed - traces$a_Speed_Fixed) - (traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed)  
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc-Speed vs. Acc-SpeedAcc Threshold [Fixed]")
+
+hist(Difference$Difference,col="lightblue", main="Acc - SpeedAcc [Fixed]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+
+
+### Acc vs. Speed X Fixed vs. Varying drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_Speed_Fixed) - (traces$v_Acc_Varying - traces$v_Speed_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. Speed X Fixed vs. Varying [Drift]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. Speed X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. Speed X Fixed vs. Varying threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_Speed_Fixed) - (traces$a_Acc_Varying - traces$a_Speed_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. Speed X Fixed vs. Varying [Threshold]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. Speed X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. SpeedAcc X Fixed vs. Varying drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_Acc_Fixed - traces$v_SpeedAcc_Fixed) - (traces$v_Acc_Varying - traces$v_SpeedAcc_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. SpeedAcc X Fixed vs. Varying [Drift]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. SpeedAcc X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. SpeedAcc X Fixed vs. Varying threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_Acc_Fixed - traces$a_SpeedAcc_Fixed) - (traces$a_Acc_Varying - traces$a_SpeedAcc_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="Acc vs. SpeedAcc X Fixed vs. Varying [Threshold]")
+
+hist(Difference$Difference,col="lightblue", main="Acc vs. SpeedAcc X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+### SpeedAcc vs Speed X Fixed vs. Varying drift
+
+
+```{r, message=FALSE}
+
+Difference = (traces$v_SpeedAcc_Fixed - traces$v_Speed_Fixed) - (traces$v_SpeedAcc_Varying - traces$v_Speed_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed X Fixed vs. Varying [Drift]")
+
+hist(Difference$Difference,col="lightblue", main="SpeedAcc vs. Speed X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Acc vs. SpeedAcc X Fixed vs. Varying threshold
+
+
+```{r, message=FALSE}
+
+Difference = (traces$a_SpeedAcc_Fixed - traces$a_Speed_Fixed) - (traces$a_SpeedAcc_Varying - traces$a_Speed_Varying)
+Difference = as.data.frame(Difference)
+h = (hypothesis(Difference,"Difference<0"))
+kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed X Fixed vs. Varying [Threshold]")
+
+hist(Difference$Difference,col="lightblue", main="SpeedAcc vs. Speed X Fixed vs. Varying", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+```
+
+
+
+
+### Speed varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+Speed_Goal = traces$v_Speed_Varying - traces$v_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Speed varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Speed_Goal = traces$a_Speed_Varying - traces$a_Speed_Fixed
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+
+### Speed & Accuracy varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+
+SpeedAccuracy_Goal = traces$v_SpeedAcc_Varying - traces$v_SpeedAcc_Fixed
+SpeedAccuracy_Goal = as.data.frame(SpeedAccuracy_Goal)
+h = (hypothesis(SpeedAccuracy_Goal,"SpeedAccuracy_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed & Accuracy (varying vs. fixed)")
+
+
+hist(SpeedAccuracy_Goal$SpeedAccuracy_Goal,col="lightblue", main="SpeedAcc Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Speed & Accuracy varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+SpeedAccuracy_Goal = traces$a_SpeedAcc_Varying - traces$a_SpeedAcc_Fixed
+SpeedAccuracy_Goal = as.data.frame(SpeedAccuracy_Goal)
+h = (hypothesis(SpeedAccuracy_Goal,"SpeedAccuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Speed & Accuracy (varying vs. fixed)")
+
+hist(SpeedAccuracy_Goal$SpeedAccuracy_Goal,col="lightblue", main="SpeedAcc Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+### Accuracy varying vs. fixed (drift)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$v_Acc_Varying - traces$v_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy Varying vs. Fixed [Drift]", xlab="", breaks = 20, xlim = c(-0.5,1.2))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Accuracy varying vs. fixed (threshold)
+
+
+```{r, message=FALSE}
+
+
+Accuracy_Goal = traces$a_Acc_Varying - traces$a_Acc_Fixed
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy Varying vs. Fixed [Threshold]", xlab="", breaks = 20, xlim = c(-0.2,0.5))  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+## Differences
+
+
+```{r, message=FALSE}
+
+### Difference between the conditions ####
+
+output <- test.params(traces)
+
+drift.rate<- output %>% filter(parameter %in% c('v_AccMinSpeed_Varying',
+                                                'v_AccMinSpeedAcc_Varying',
+                                                'v_SpeedAccMinSpeed_Varying',
+                                                'v_AccMinSpeed_Fixed',
+                                                'v_AccMinSpeedAcc_Fixed',
+                                                'v_SpeedAccMinSpeed_Fixed'))
+
+threshold<- output %>% filter(parameter %in% c('a_AccMinSpeed_Varying',
+                                               'a_AccMinSpeedAcc_Varying',
+                                               'a_SpeedAccMinSpeed_Varying',
+                                               'a_AccMinSpeed_Fixed',
+                                               'a_AccMinSpeedAcc_Fixed',
+                                               'a_SpeedAccMinSpeed_Fixed'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor','fixed'),'_')
+
+labels <- c('Threshold','Drift')
+
+va$factor = as.factor(va$factor)
+
+va$fixed = as.factor(va$fixed)
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+# Plot
+# Plot
+p<-ggplot(va,aes(x=parameter, y=Mean,fill=fixed)) +
+  geom_bar(width=0.6,stat="identity", position=position_dodge(0.6),color=NA) +
+  geom_errorbar(width=.1, size=1.1, position=position_dodge(width = .6),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+  facet_wrap(vars(factor)) +
+  scale_fill_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  scale_x_discrete(expand = c(0.3,0.3),limits = c("Drift Rate","Threshold"))+
+  scale_y_continuous(expand = c(0,0),limits = c(-0.1,1.1)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.title.x=element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.70, 0.99),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+# ggsave("Mixed_ae_only_VAT.tiff", units="in", width=15, height=4, dpi=400, compression = 'lzw')
+
+kable(va)
+
+
+
+```
+
+
+
+# Simulations
+
+
+
+## Import the data
+
+### Import
+
+```{r, message=FALSE}
+# Import, tidy, and merge the simulations data
+sim_data = read.csv("../model_simulations/Experiment2.csv")
+
+# Change condition names
+sim_data$condition = ifelse(sim_data$condition==0,"Speed",sim_data$condition)
+sim_data$condition = ifelse(sim_data$condition==1,"Accuracy",sim_data$condition)
+sim_data$condition = ifelse(sim_data$condition==2,"Speed & Accuracy",sim_data$condition)
+
+
+# Change variable names
+colnames(sim_data) = c("factor","fixed","Mean_Drift","Mean_Threshold","v_star","a_star")
+
+# Order the factor
+sim_data$factor = factor(sim_data$factor,levels = c("Speed", "Speed & Accuracy", "Accuracy"))
+
+
+```
+
+### Summary table
+
+```{r, message=FALSE}
+
+
+kable(sim_data)
+
+```
+
+## Plot
+
+
+```{r, message=FALSE}
+
+p<-ggplot(sim_data,aes(x=Mean_Drift, y=Mean_Threshold,colour = factor,shape = fixed)) +
+  geom_point(size=6) +
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  ylab("Threshold") + 
+  xlab("Drift Rate") + 
+  scale_x_continuous(limits = c(2.2,4.2))+
+  scale_y_continuous(limits = c(0.5,1.3))+
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+        text = element_text(size=33,color = "black"),
+        panel.border = element_rect (colour = "black", fill = F),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = "none")  
+
+p
+
+Fig3.DDM_sim = p
+
+
+```
+
+
+
+# Save the figures
+
+
+```{r, message=FALSE}
+
+
+# Save the figure
+pdf(file="../../../Manuscript/figures/Figure_3_DDM&Sim.pdf",height=6,width=12)
+
+p = cowplot::plot_grid(Fig3.DDM_sim,
+                       Fig3.DDM,
+                       nrow = 1,
+                       ncol = 2)
+p
+dev.off()
+
+```
+
