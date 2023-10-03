@@ -2786,14 +2786,65 @@ colnames(Diff_250) = "Diff_250"
 h = (hypothesis(Diff_250,"Diff_250<0"))
 kable(as.data.frame(h$hypothesis),caption="Accuracy vs. Speed Varying Threshold")
 
-Distance_Fixed_250 = sqrt((mean(conditions_drift$Drift_Accuracy_Fixed_ISI250) - (mean(conditions_drift$Drift_Speed_Fixed_ISI250)))**2 + (mean(conditions_threshold$Threshold_Accuracy_Fixed_ISI250) - mean(conditions_threshold$Threshold_Speed_Fixed_ISI250))**2)
-
 # Distance
 Distance_Fixed_250 = sqrt((conditions_drift$Drift_Accuracy_Fixed_ISI250 - conditions_drift$Drift_Speed_Fixed_ISI250)**2 + (conditions_threshold$Threshold_Accuracy_Fixed_ISI250 - conditions_threshold$Threshold_Speed_Fixed_ISI250)**2)
 Distance_Varying_250 = sqrt((conditions_drift$Drift_Accuracy_Varying_ISI250 - conditions_drift$Drift_Speed_Varying_ISI250)**2 + (conditions_threshold$Threshold_Accuracy_Varying_ISI250 - conditions_threshold$Threshold_Speed_Varying_ISI250)**2)
 Distance_Diff_250 = Distance_Fixed_250 - Distance_Varying_250
 kable(test.params(as.data.frame(Distance_Diff_250)))
 
+# Normalized distance
+
+# Threshold & Drift overall min & max
+a_max = max(rbind(conditions_threshold$Threshold_Accuracy_Fixed_ISI250,
+                  conditions_threshold$Threshold_Accuracy_Varying_ISI250,
+                  conditions_threshold$Threshold_Accuracy_Fixed_ISI1000,
+                  conditions_threshold$Threshold_Accuracy_Varying_ISI1000,
+                  conditions_threshold$Threshold_Speed_Fixed_ISI250,
+                  conditions_threshold$Threshold_Speed_Varying_ISI250,
+                  conditions_threshold$Threshold_Speed_Fixed_ISI1000,
+                  conditions_threshold$Threshold_Speed_Varying_ISI1000))
+
+a_min = min(rbind(conditions_threshold$Threshold_Accuracy_Fixed_ISI250,
+                  conditions_threshold$Threshold_Accuracy_Varying_ISI250,
+                  conditions_threshold$Threshold_Accuracy_Fixed_ISI1000,
+                  conditions_threshold$Threshold_Accuracy_Varying_ISI1000,
+                  conditions_threshold$Threshold_Speed_Fixed_ISI250,
+                  conditions_threshold$Threshold_Speed_Varying_ISI250,
+                  conditions_threshold$Threshold_Speed_Fixed_ISI1000,
+                  conditions_threshold$Threshold_Speed_Varying_ISI1000))
+
+v_max = max(rbind(conditions_drift$Drift_Accuracy_Fixed_ISI250,
+                  conditions_drift$Drift_Accuracy_Varying_ISI250,
+                  conditions_drift$Drift_Accuracy_Fixed_ISI1000,
+                  conditions_drift$Drift_Accuracy_Varying_ISI1000,
+                  conditions_drift$Drift_Speed_Fixed_ISI250,
+                  conditions_drift$Drift_Speed_Varying_ISI250,
+                  conditions_drift$Drift_Speed_Fixed_ISI1000,
+                  conditions_drift$Drift_Speed_Varying_ISI1000))
+
+v_min = min(rbind(conditions_drift$Drift_Accuracy_Fixed_ISI250,
+                  conditions_drift$Drift_Accuracy_Varying_ISI250,
+                  conditions_drift$Drift_Accuracy_Fixed_ISI1000,
+                  conditions_drift$Drift_Accuracy_Varying_ISI1000,
+                  conditions_drift$Drift_Speed_Fixed_ISI250,
+                  conditions_drift$Drift_Speed_Varying_ISI250,
+                  conditions_drift$Drift_Speed_Fixed_ISI1000,
+                  conditions_drift$Drift_Speed_Varying_ISI1000))
+
+# Normalization
+v_rangeNorm <- function(x){
+  (x-v_min)/(v_max-v_min)
+}
+a_rangeNorm <- function(x){
+  (x-a_min)/(a_max-a_min)
+}
+
+Distance_Fixed_250 = sqrt((v_rangeNorm(conditions_drift$Drift_Accuracy_Fixed_ISI250) - v_rangeNorm(conditions_drift$Drift_Speed_Fixed_ISI250))**2 + (a_rangeNorm(conditions_threshold$Threshold_Accuracy_Fixed_ISI250) - a_rangeNorm(conditions_threshold$Threshold_Speed_Fixed_ISI250))**2)
+
+Distance_Varying_250 = sqrt((v_rangeNorm(conditions_drift$Drift_Accuracy_Varying_ISI250) - v_rangeNorm(conditions_drift$Drift_Speed_Varying_ISI250))**2 + (a_rangeNorm(conditions_threshold$Threshold_Accuracy_Varying_ISI250) - a_rangeNorm(conditions_threshold$Threshold_Speed_Varying_ISI250))**2)
+
+Distance_Diff_250 = Distance_Fixed_250 - Distance_Varying_250
+kable(test.params(as.data.frame(Distance_Diff_250)))
 
 
 ##### 1000ms
@@ -2848,7 +2899,14 @@ Distance_Diff_1000 = Distance_Fixed_1000 - Distance_Varying_1000
 kable(test.params(as.data.frame(Distance_Diff_1000)))
 
 
-Distance_Fixed_1000 = sqrt((mean(conditions_drift$Drift_Accuracy_Fixed_ISI1000) - (mean(conditions_drift$Drift_Speed_Fixed_ISI1000)))**2 + (mean(conditions_threshold$Threshold_Accuracy_Fixed_ISI1000) - mean(conditions_threshold$Threshold_Speed_Fixed_ISI1000))**2)
+# Normalized distance
+
+Distance_Fixed_1000 = sqrt((v_rangeNorm(conditions_drift$Drift_Accuracy_Fixed_ISI1000) - v_rangeNorm(conditions_drift$Drift_Speed_Fixed_ISI1000))**2 + (a_rangeNorm(conditions_threshold$Threshold_Accuracy_Fixed_ISI1000) - a_rangeNorm(conditions_threshold$Threshold_Speed_Fixed_ISI1000))**2)
+
+Distance_Varying_1000 = sqrt((v_rangeNorm(conditions_drift$Drift_Accuracy_Varying_ISI1000) - v_rangeNorm(conditions_drift$Drift_Speed_Varying_ISI1000))**2 + (a_rangeNorm(conditions_threshold$Threshold_Accuracy_Varying_ISI1000) - a_rangeNorm(conditions_threshold$Threshold_Speed_Varying_ISI1000))**2)
+
+Distance_Diff_1000 = Distance_Fixed_1000 - Distance_Varying_1000
+kable(test.params(as.data.frame(Distance_Diff_1000)))
 
 ```
 

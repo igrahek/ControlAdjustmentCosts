@@ -21,7 +21,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Experiment: Control adjustment costs - 4 experiments
 Code written by: Ivan Grahek (2023)
-Description: Code for generating the forest plot with the main effects across 4 studies 
+Description: Code for generating the forest plot with the control costs across 4 studies 
 
 \newpage
 
@@ -44,190 +44,7 @@ pacman::p_load(brms,here,broom,knitr,tidyverse,plyr,cowplot,emmeans,tidybayes,vi
 ```
 
 
-
-# Enter the effects
-
-
-```{r,warning=T, message=T}
-
-# Study 1
-# Create a data frame
-Study1 = data.frame(
-  # Study = c("Study1", "Study1", "Study1", "Study1"),
-  # Block = c("Fixed", "Varying", "Fixed", "Varying"),
-  Parameter = c("Drift", "Drift", "Drift", "Threshold", "Threshold", "Threshold"),
-  Effect = c("Study1_Fix", "Study1_Var","Study1_Cost", "Study1_Fix", "Study1_Var","Study1_Cost"),
-  Mean = c(0.56, 0.51, 0.05,0.46, 0.38,0.08),
-  CI_lower = c(0.34, 0.29,-0.11, 0.33, 0.25,0.03),
-  CI_upper = c(0.79, 0.74, 0.21,0.60, 0.52,0.13)
-)
-
-# Maintain the order of the y-axis
-Study1$Effect = factor(Study1$Effect, levels = rev(unique(Study1$Effect)))
-
-# Create the forest plot
-ggplot(Study1, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.1) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  facet_wrap(~Parameter)+
-  labs(title = "Forest Plot", x = "Mean", y = NULL) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-# Study 2
-# Create a data frame
-Study2_AS = data.frame(
-  # Study = c("Study1", "Study1", "Study1", "Study1"),
-  # Block = c("Fixed", "Varying", "Fixed", "Varying"),
-  Parameter = c("Drift", "Drift", "Drift", "Threshold", "Threshold", "Threshold"),
-  Effect = c("Study2_Fix_A-S", "Study2_Var_A-S","Study2_Cost_A-S","Study2_Fix_A-S", "Study2_Var_A-S","Study2_Cost_A-S"),
-  Mean = c(0.84,0.48,0.36,0.54,0.43,0.11),
-  CI_lower = c(0.63,0.27,0.16,0.43,0.32,0.04),
-  CI_upper = c(1.06,0.70,0.55,0.64,0.53,0.18)
-)
-
-Study2_A_AS = data.frame(
-  # Study = c("Study1", "Study1", "Study1", "Study1"),
-  # Block = c("Fixed", "Varying", "Fixed", "Varying"),
-  Parameter = c("Drift", "Drift", "Drift", "Threshold", "Threshold", "Threshold"),
-  Effect = c("Study2_Fix_A-AS", "Study2_Var_A-AS","Study2_Cost_A-AS","Study2_Fix_A-AS", "Study2_Var_A-AS","Study2_Cost_A-AS"),
-  Mean = c(0.32,0.23,0.09,0.22,0.18,0.04),
-  CI_lower = c(0.11,0.03,-0.09,0.12,0.08,-0.03),
-  CI_upper = c(0.52,0.44,0.27,0.33,0.29,0.11)
-)
-
-Study2_AS_SS = data.frame(
-  # Study = c("Study1", "Study1", "Study1", "Study1"),
-  # Block = c("Fixed", "Varying", "Fixed", "Varying"),
-  Parameter = c("Drift", "Drift", "Drift", "Threshold", "Threshold", "Threshold"),
-  Effect = c("Study2_Fix_AS-S", "Study2_Var_AS-S","Study2_Cost_AS-S","Study2_Fix_AS-S", "Study2_Var_AS-S","Study2_Cost_AS-S"),
-  Mean = c(0.52,0.25,0.27,0.31,0.24,0.07),
-  CI_lower = c(0.36,0.08,0.03,0.23,0.16,0.01),
-  CI_upper = c(0.69,0.43,0.51,0.39,0.32,0.12)
-)
-
-Study2 = rbind(Study2_AS,Study2_AS_SS,Study2_A_AS)
-
-# Maintain the order of the y-axis
-Study2$Effect = factor(Study2$Effect, levels = rev(unique(Study2$Effect)))
-
-# Create the forest plot
-ggplot(Study2, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.1) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  facet_wrap(~Parameter)+
-  labs(title = "Forest Plot", x = "Mean", y = NULL) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-
-# Study 3
-# Create a data frame
-Study3_AS_250 = data.frame(
-  # Study = c("Study1", "Study1", "Study1", "Study1"),
-  # Block = c("Fixed", "Varying", "Fixed", "Varying"),
-  Parameter = c("Drift", "Drift", "Drift", "Threshold", "Threshold", "Threshold"),
-  Effect = c("Study3_Fix_A-S_250", "Study3_Var_A-S_250","Study3_Cost_A-S_250","Study3_Fix_A-S_250", "Study3_Var_A-S_250","Study3_Cost_A-S_250"),
-  Mean = c(0.13,0.14,-0.01,0.25,0.14,0.11),
-  CI_lower = c(0.00,0.02,-0.17,0.19,0.08,0.06),
-  CI_upper = c(0.25,0.27,0.13,0.31,0.20,0.15)
-)
-
-Study3_AS_1000 = data.frame(
-  # Study = c("Study1", "Study1", "Study1", "Study1"),
-  # Block = c("Fixed", "Varying", "Fixed", "Varying"),
-  Parameter = c("Drift", "Drift", "Drift", "Threshold", "Threshold", "Threshold"),
-  Effect = c("Study3_Fix_A-S_1000", "Study3_Var_A-S_1000","Study3_Cost_A-S_1000","Study3_Fix_A-S_1000", "Study3_Var_A-S_1000","Study3_Cost_A-S_1000"),
-  Mean = c(0.19,0.11,0.07,0.18,0.15,0.03),
-  CI_lower = c(0.06,-0.01,-0.08,0.13,0.09,-0.01),
-  CI_upper = c(0.31,0.24,0.23,0.24,0.21,0.08)
-)
-Study3 = rbind(Study3_AS_250,Study3_AS_1000)
-
-# Maintain the order of the y-axis
-Study3$Effect = factor(Study3$Effect, levels = rev(unique(Study3$Effect)))
-
-# Create the forest plot
-ggplot(Study3, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.1) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  facet_wrap(~Parameter)+
-  labs(title = "Forest Plot", x = "Mean", y = NULL) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-
-
-# Study 4
-# Create a data frame
-Study4 = data.frame(
-  # Study = c("Study1", "Study1", "Study1", "Study1"),
-  # Block = c("Fixed", "Varying", "Fixed", "Varying"),
-  Parameter = c("Drift", "Drift", "Drift", "Drift", "Threshold", "Threshold", "Threshold", "Threshold"),
-  Effect = c("Study4_Fix", "Study4_8","Study4_4", "Study4_2", "Study4_Fix", "Study4_8","Study4_4", "Study4_2"),
-  Mean = c(0.36, 0.41, 0.22, 0.22, 0.31, 0.24, 0.20, 0.19),
-  CI_lower = c(0.20,0.27, 0.07, 0.07, 0.24, 0.17, 0.14, 0.13),
-  CI_upper = c(0.52,0.56, 0.36, 0.38, 0.37, 0.30, 0.26, 0.26)
-)
-
-# Create a data frame
-Study4Cost = data.frame(
-  # Study = c("Study1", "Study1", "Study1", "Study1"),
-  # Block = c("Fixed", "Varying", "Fixed", "Varying"),
-  Parameter = c("Drift", "Drift", "Drift", "Threshold", "Threshold", "Threshold"),
-  # Effect = c("Study4_8_Cost", "Study4_4_Cost", "Study4_2_Cost","Study4_8_Cost","Study4_4_Cost", "Study4_2_Cost"),
-  Effect = c("Study4_2_Cost", "Study4_4_Cost", "Study4_8_Cost","Study4_2_Cost","Study4_4_Cost", "Study4_8_Cost"),
-  # Mean = c(-0.05,0.14,0.14, 0.07,0.10,0.11),
-  Mean = c(0.14,0.14,-0.05, 0.11,0.10,0.07),
-  # CI_lower = c(-0.20, -0.02, -0.05, 0.02,0.05,0.05),
-  CI_lower = c(-0.05, -0.02, -0.20, 0.05,0.05,0.02),
-  # CI_upper = c(0.10,0.31, 0.32,0.12,0.16,0.17)
-  CI_upper = c(0.32,0.31, 0.10,0.17,0.16,0.12)
-)
-# Maintain the order of the y-axis
-Study4$Effect = factor(Study4$Effect, levels = rev(unique(Study4$Effect)))
-Study4Cost$Effect = factor(Study4Cost$Effect, levels = rev(unique(Study4Cost$Effect)))
-
-Study4 = rbind(Study4,Study4Cost)
-
-
-
-
-
-# Create the forest plot
-ggplot(Study4, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.1) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  facet_wrap(~Parameter)+
-  labs(title = "Forest Plot", x = "Mean", y = NULL) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-```
-
-# Plot all effects together
-
-```{r, warning=FALSE, message=FALSE}
-Effects = rbind(Study1,Study2,Study3,Study4)
-Effects$Effect = factor(Effects$Effect, levels = rev(unique(Effects$Effect)))
-
-# Create the forest plot
-ggplot(Effects, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.1) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  facet_wrap(~Parameter)+
-  labs(title = "Forest Plot", x = "Mean", y = NULL) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-```
-
-# Enter the distances
-
+# Enter the range normalized distances
 
 ```{r,warning=T, message=T}
 
@@ -236,8 +53,8 @@ ggplot(Effects, aes(x = Mean, y = Effect)) +
 Study1Distance = data.frame(
   Parameter = c("Distance"),
   Effect = c("Control Adjustment Cost"),
-  Mean = c(0.09),
-  CI_lower = c(-0.05),
+  Mean = c(0.11),
+  CI_lower = c(-0.01),
   CI_upper = c(0.23)
 )
 
@@ -246,9 +63,9 @@ Study1Distance = data.frame(
 Study2Distance = data.frame(
   Parameter = c("Distance","Distance","Distance"),
   Effect = c("Cost (Low distance)","Cost (Medium distance)","Cost (High distance)"),
-  Mean = c(0.09,0.25,0.35),
-  CI_lower = c(-0.09,0.01,0.15),
-  CI_upper = c(0.27,0.48,0.55)
+  Mean = c(0.07,0.17,0.24),
+  CI_lower = c(-0.05,0.03,0.11),
+  CI_upper = c(0.20,0.31,0.38)
 )
 
 # Study 3
@@ -256,9 +73,9 @@ Study2Distance = data.frame(
 Study3Distance = data.frame(
   Parameter = c("Distance","Distance"),
   Effect = c("Cost (Long time)","Cost (Short time)"),
-  Mean = c(0.08,0.07),
-  CI_lower = c(-0.05,-0.06),
-  CI_upper = c(0.20,0.21)
+  Mean = c(0.11,0.24),
+  CI_lower = c(-0.07,0.06),
+  CI_upper = c(0.30,0.41)
 )
 
 # Study 4
@@ -268,9 +85,9 @@ Study4Distance = data.frame(
   Effect = c("Cost (Low switch frequency)",
                                "Cost (Medium switch frequency)",
                                "Cost (High switch frequency)"),
-  Mean = c(0.00,0.17,0.17),
-  CI_lower = c(-0.16,0.01,-0.01),
-  CI_upper = c(0.16,0.34,0.35)
+  Mean = c(0.07,0.25,0.26),
+  CI_lower = c(-0.11,0.07,0.06),
+  CI_upper = c(0.24,0.44,0.45)
 )
 
 
@@ -278,60 +95,28 @@ Studies_Distance = rbind(Study1Distance,Study2Distance,Study3Distance,Study4Dist
 Studies_Distance$Effect = factor(Studies_Distance$Effect, levels = rev(unique(Studies_Distance$Effect)))
 
 
+# 
+# # Create the forest plot
+# ggplot(Studies_Distance, aes(x = Mean, y = Effect)) +
+#   geom_point(size = 3) +
+#   geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.1) +
+#   geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+#   facet_wrap(~Parameter)+
+#   labs(title = "Forest Plot", x = "Mean", y = NULL) +
+#   theme_minimal() +
+#   theme(legend.position = "bottom")
 
-# Create the forest plot
-ggplot(Studies_Distance, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.1) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  facet_wrap(~Parameter)+
-  labs(title = "Forest Plot", x = "Mean", y = NULL) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-
-
-```
-
-# Plot all effects together
-
-```{r, warning=FALSE, message=FALSE}
-Effects = rbind(Study1,Study2,Study3,Study4)
-Effects$Effect = factor(Effects$Effect, levels = rev(unique(Effects$Effect)))
-
-# Create the forest plot
-ggplot(Effects, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.1) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-  facet_wrap(~Parameter)+
-  labs(title = "Forest Plot", x = "Mean", y = NULL) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-```
-
-
-# Plot only the costs
-
-```{r, warning=FALSE, message=FALSE}
-Costs = Effects[c(3,6,9,12,15,18, 21, 24,27,30,33,36,45,46,47,48,49,50),]
-
-# Costs$Effect = paste0(Costs$Effect,"_",Costs$Parameter)
-# Costs$Effect = factor(Costs$Effect, levels = rev(unique(Costs$Effect)))
-
-Costs$Parameter = factor(Costs$Parameter, levels = c("Threshold", "Drift"))
-
-# Create the forest plot
 
 # Save the figure
 pdf(file="../../Manuscript/figures/Figure_6.pdf",height=10,width=12)
 
-p = ggplot(Costs, aes(x = Mean, y = Effect)) +
+p = ggplot(Studies_Distance, aes(x = Mean, y = Effect)) +
   geom_point(size = 3) +
   geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper),height=0) +
   geom_vline(xintercept = 0, linetype = "dashed") +
   ylab("Cost") + 
   xlab("Regression estimate") + 
+  xlim(c(-0.2,0.5))+
   facet_wrap(~Parameter, scales = "free_x")+
     theme(axis.line = element_line(colour = "black"),
         plot.margin=grid::unit(c(5,5,5,5), "mm"),
@@ -351,267 +136,6 @@ dev.off()
 
 
 
-
-```
-
-# Plot only the costs (Threshold)
-
-```{r, warning=FALSE, message=FALSE}
-Costs = Effects[c(3,6,9,12,15,18, 21, 24,27,30,33,36,45,46,47,48,49,50),]
-
-# Costs$Effect = paste0(Costs$Effect,"_",Costs$Parameter)
-# Costs$Effect = factor(Costs$Effect, levels = rev(unique(Costs$Effect)))
-
-Costs = subset(Costs,Parameter=="Threshold")
-# Create the forest plot
-
-# Save the figure
-pdf(file="../../Manuscript/figures/Figure_6A.pdf",height=10,width=8)
-
-p = ggplot(Costs, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper),height=0) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  ylab("Cost") + 
-  xlab("Regression estimate") + 
-  xlim(-0.1,0.2)+
-    theme(axis.line = element_line(colour = "black"),
-        plot.margin=grid::unit(c(5,5,5,5), "mm"),
-        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
-        text = element_text(size=33,color = "black"),
-        panel.border = element_rect (colour = "black", fill = F),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(color="black"),
-        axis.text.y = element_text(color="black"),
-        axis.ticks = element_line(color = "black"),
-        legend.position = c(0.8, 0.25),
-        legend.background = element_rect(fill = "transparent", color = NA))  
-p
-dev.off()
-
-
-
-
-```
-
-# Plot only the costs (Drift)
-
-```{r, warning=FALSE, message=FALSE}
-Costs = Effects[c(3,6,9,12,15,18, 21, 24,27,30,33,36,45,46,47,48,49,50),]
-
-# Costs$Effect = paste0(Costs$Effect,"_",Costs$Parameter)
-# Costs$Effect = factor(Costs$Effect, levels = rev(unique(Costs$Effect)))
-
-Costs = subset(Costs,Parameter=="Drift")
-# Create the forest plot
-
-# Save the figure
-pdf(file="../../Manuscript/figures/Figure_6B.pdf",height=10,width=8)
-
-p = ggplot(Costs, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper),height=0) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  ylab("Cost") + 
-  xlab("Regression estimate") + 
-  xlim(-0.2,0.59)+
-    theme(axis.line = element_line(colour = "black"),
-        plot.margin=grid::unit(c(5,5,5,5), "mm"),
-        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
-        text = element_text(size=33,color = "black"),
-        panel.border = element_rect (colour = "black", fill = F),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(color="black"),
-        axis.text.y = element_text(color="black"),
-        axis.ticks = element_line(color = "black"),
-        legend.position = c(0.8, 0.25),
-        legend.background = element_rect(fill = "transparent", color = NA))  
-p
-dev.off()
-
-
-
-
-```
-
-# Study 1
-
-```{r, warning=FALSE, message=FALSE}
-Costs = Effects[c(3,6,9,12,15,18, 21, 24,27,30,33,36,45,46,47,48,49,50),]
-
-Costs$Effect = paste0(Costs$Effect,"_",Costs$Parameter)
-rownames(Costs) = seq(length=nrow(Costs))
-
-Costs = Costs[c(1:2),]
-
-Costs$Effect = c("Study1T1","Study1D2")
-
-
-# Create the forest plot
-p1 = ggplot(Costs, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper),height=0) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  ylab("Cost") + 
-  xlab("Regression estimate") + 
-  xlim(-0.2,0.6)+
-    theme(axis.line = element_line(colour = "black"),
-        plot.margin=grid::unit(c(5,5,5,5), "mm"),
-        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
-        text = element_text(size=33,color = "black"),
-        panel.border = element_rect (colour = "black", fill = F),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(color="black"),
-        axis.text.y = element_text(color="black"),
-        axis.ticks = element_line(color = "black"),
-        legend.position = c(0.8, 0.25),
-        legend.background = element_rect(fill = "transparent", color = NA))  
-p1
-
-
-```
-
-# Study 2
-
-```{r, warning=FALSE, message=FALSE}
-Costs = Effects[c(3,6,9,12,15,18, 21, 24,27,30,33,36,45,46,47,48,49,50),]
-
-Costs$Effect = paste0(Costs$Effect,"_",Costs$Parameter)
-rownames(Costs) = seq(length=nrow(Costs))
-
-Costs = Costs[c(3:8),]
-
-Costs$Effect = c("Study2T1","Study2D2","Study2T3","Study2D4","Study2T5","Study2D6")
-
-# Create the forest plot
-p2 = ggplot(Costs, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper),height=0) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  ylab("Cost") + 
-  xlab("Regression estimate") + 
-  xlim(-0.2,0.6)+
-    theme(axis.line = element_line(colour = "black"),
-        plot.margin=grid::unit(c(5,5,5,5), "mm"),
-        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
-        text = element_text(size=33,color = "black"),
-        panel.border = element_rect (colour = "black", fill = F),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(color="black"),
-        axis.text.y = element_text(color="black"),
-        axis.ticks = element_line(color = "black"),
-        legend.position = c(0.8, 0.25),
-        legend.background = element_rect(fill = "transparent", color = NA))  
-p2
 ```
 
 
-# Study 3
-
-```{r, warning=FALSE, message=FALSE}
-Costs = Effects[c(3,6,9,12,15,18, 21, 24,27,30,33,36,45,46,47,48,49,50),]
-
-Costs$Effect = paste0(Costs$Effect,"_",Costs$Parameter)
-rownames(Costs) = seq(length=nrow(Costs))
-
-Costs = Costs[c(9:12),]
-Costs$Effect = c("Study3T1","Study3D2","Study3T3","Study3D4")
-
-
-
-# Create the forest plot
-p3 = ggplot(Costs, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper),height=0) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  ylab("Cost") + 
-  xlab("Regression estimate") + 
-  xlim(-0.2,0.6)+
-    theme(axis.line = element_line(colour = "black"),
-        plot.margin=grid::unit(c(5,5,5,5), "mm"),
-        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
-        text = element_text(size=33,color = "black"),
-        panel.border = element_rect (colour = "black", fill = F),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(color="black"),
-        axis.text.y = element_text(color="black"),
-        axis.ticks = element_line(color = "black"),
-        legend.position = c(0.8, 0.25),
-        legend.background = element_rect(fill = "transparent", color = NA))  
-p3
-```
-
-# Study 4
-
-```{r, warning=FALSE, message=FALSE}
-Costs = Effects[c(3,6,9,12,15,18, 21, 24,27,30,33,36,45,46,47,48,49,50),]
-
-Costs$Effect = paste0(Costs$Effect,"_",Costs$Parameter)
-rownames(Costs) = seq(length=nrow(Costs))
-
-Costs = Costs[c(13:18),]
-
-Costs$Effect = c("Study4T1","Study4D2","Study4T3","Study4D4","Study4T5","Study4D6")
-
-
-
-# Create the forest plot
-p4 = ggplot(Costs, aes(x = Mean, y = Effect)) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper),height=0) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  ylab("Cost") + 
-  xlab("Regression estimate") + 
-  xlim(-0.2,0.6)+
-    theme(axis.line = element_line(colour = "black"),
-        plot.margin=grid::unit(c(5,5,5,5), "mm"),
-        axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
-        text = element_text(size=33,color = "black"),
-        panel.border = element_rect (colour = "black", fill = F),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        panel.background = element_blank(),
-        axis.text.x = element_text(color="black"),
-        axis.text.y = element_text(color="black"),
-        axis.ticks = element_line(color = "black"),
-        legend.position = c(0.8, 0.25),
-        legend.background = element_rect(fill = "transparent", color = NA))  
-p4
-```
-
-# Save the figures
-
-
-```{r, message=FALSE}
-
-# Save the figure
-pdf(file="../../Manuscript/figures/Figure_6A.pdf",height=2,width=9)
-p1
-dev.off()
-
-pdf(file="../../Manuscript/figures/Figure_6B.pdf",height=6,width=9)
-p2
-dev.off()
-
-pdf(file="../../Manuscript/figures/Figure_6C.pdf",height=4,width=9)
-p3
-dev.off()
-
-pdf(file="../../Manuscript/figures/Figure_6D.pdf",height=6,width=9)
-p4
-dev.off()
-
-
-
-
-```

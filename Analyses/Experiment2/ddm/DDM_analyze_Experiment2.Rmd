@@ -2301,6 +2301,50 @@ Distance_Varying_A_S = sqrt((traces$v_Acc_Varying - traces$v_Speed_Varying)**2 +
 Distance_Diff_A_S = Distance_Fixed_A_S - Distance_Varying_A_S
 kable(test.params(as.data.frame(Distance_Diff_A_S)))
 
+# Normalized distance
+
+# Threshold & Drift overall min & max
+a_max = max(rbind(traces$a_Acc_Fixed,
+                  traces$a_Acc_Varying,
+                  traces$a_Speed_Fixed,
+                  traces$a_Speed_Varying,
+                  traces$a_SpeedAcc_Fixed,
+                  traces$a_SpeedAcc_Varying))
+
+a_min = min(rbind(traces$a_Acc_Fixed,
+                  traces$a_Acc_Varying,
+                  traces$a_Speed_Fixed,
+                  traces$a_Speed_Varying,
+                  traces$a_SpeedAcc_Fixed,
+                  traces$a_SpeedAcc_Varying))
+
+v_max = max(rbind(traces$v_Acc_Fixed,
+                  traces$v_Acc_Varying,
+                  traces$v_Speed_Fixed,
+                  traces$v_Speed_Varying,
+                  traces$v_SpeedAcc_Fixed,
+                  traces$v_SpeedAcc_Varying))
+
+v_min = min(rbind(traces$v_Acc_Fixed,
+                  traces$v_Acc_Varying,
+                  traces$v_Speed_Fixed,
+                  traces$v_Speed_Varying,
+                  traces$v_SpeedAcc_Fixed,
+                  traces$v_SpeedAcc_Varying))
+
+# Normalization
+v_rangeNorm <- function(x){
+  (x-v_min)/(v_max-v_min)
+}
+a_rangeNorm <- function(x){
+  (x-a_min)/(a_max-a_min)
+}
+
+Distance_Fixed_A_S = sqrt((v_rangeNorm(traces$v_Acc_Fixed) - v_rangeNorm(traces$v_Speed_Fixed))**2 + (a_rangeNorm(traces$a_Acc_Fixed) - a_rangeNorm(traces$a_Speed_Fixed))**2)
+Distance_Varying_A_S = sqrt((v_rangeNorm(traces$v_Acc_Varying) - v_rangeNorm( traces$v_Speed_Varying))**2 + (a_rangeNorm(traces$a_Acc_Varying) - a_rangeNorm(traces$a_Speed_Varying))**2)
+Distance_Diff_A_S = Distance_Fixed_A_S - Distance_Varying_A_S
+kable(test.params(as.data.frame(Distance_Diff_A_S)))
+
 ##### Accuracy vs. Speed Accuracy
 
 # Drift - A-S fixed
@@ -2345,6 +2389,11 @@ Distance_Varying_A_SA = sqrt((traces$v_Acc_Varying - traces$v_SpeedAcc_Varying)*
 Distance_Diff_A_SA = Distance_Fixed_A_SA - Distance_Varying_A_SA
 kable(test.params(as.data.frame(Distance_Diff_A_SA)))
 
+# Normalized Distance
+Distance_Fixed_A_SA = sqrt((v_rangeNorm(traces$v_Acc_Fixed) - v_rangeNorm(traces$v_SpeedAcc_Fixed))**2 + (a_rangeNorm(traces$a_Acc_Fixed) - a_rangeNorm(traces$a_SpeedAcc_Fixed))**2)
+Distance_Varying_A_SA = sqrt((v_rangeNorm(traces$v_Acc_Varying) - v_rangeNorm(traces$v_SpeedAcc_Varying))**2 + (a_rangeNorm(traces$a_Acc_Varying) - a_rangeNorm(traces$a_SpeedAcc_Varying))**2)
+Distance_Diff_A_SA = Distance_Fixed_A_SA - Distance_Varying_A_SA
+kable(test.params(as.data.frame(Distance_Diff_A_SA)))
 
 ##### Speed/Accuracy vs. Speed
 
@@ -2387,6 +2436,12 @@ kable(as.data.frame(h$hypothesis),caption="SpeedAcc vs. Speed Varying Threshold"
 # Distance
 Distance_Fixed_SA_S = sqrt((traces$v_SpeedAcc_Fixed - traces$v_Speed_Fixed)**2 + (traces$a_SpeedAcc_Fixed - traces$a_Speed_Fixed)**2)
 Distance_Varying_SA_S = sqrt((traces$v_SpeedAcc_Varying - traces$v_Speed_Varying)**2 + (traces$a_SpeedAcc_Varying - traces$a_Speed_Varying)**2)
+Distance_Diff_SA_S = Distance_Fixed_SA_S - Distance_Varying_SA_S
+kable(test.params(as.data.frame(Distance_Diff_SA_S)))
+
+# Normalized Distance
+Distance_Fixed_SA_S = sqrt((v_rangeNorm(traces$v_SpeedAcc_Fixed) - v_rangeNorm(traces$v_Speed_Fixed))**2 + (a_rangeNorm(traces$a_SpeedAcc_Fixed) - a_rangeNorm(traces$a_Speed_Fixed))**2)
+Distance_Varying_SA_S = sqrt((v_rangeNorm(traces$v_SpeedAcc_Varying) - v_rangeNorm(traces$v_Speed_Varying))**2 + (a_rangeNorm(traces$a_SpeedAcc_Varying) - a_rangeNorm(traces$a_Speed_Varying))**2)
 Distance_Diff_SA_S = Distance_Fixed_SA_S - Distance_Varying_SA_S
 kable(test.params(as.data.frame(Distance_Diff_SA_S)))
 

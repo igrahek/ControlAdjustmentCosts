@@ -2138,15 +2138,70 @@ kable(test.params(as.data.frame(Distance_Fixed)))
 Distance_2 = sqrt((driftEveryCondition$Drift_2intervals_Accuracy - driftEveryCondition$Drift_2intervals_Speed)**2 + (thresholdEveryCondition$Threshold_2intervals_Accuracy - thresholdEveryCondition$Threshold_2intervals_Speed)**2)
 kable(test.params(as.data.frame(Distance_Fixed-Distance_2)))
 
-
 Distance_4 = sqrt((driftEveryCondition$Drift_4intervals_Accuracy - driftEveryCondition$Drift_4intervals_Speed)**2 + (thresholdEveryCondition$Threshold_4intervals_Accuracy - thresholdEveryCondition$Threshold_4intervals_Speed)**2)
 kable(test.params(as.data.frame(Distance_Fixed-Distance_4)))
-
 
 Distance_8 = sqrt((driftEveryCondition$Drift_8intervals_Accuracy - driftEveryCondition$Drift_8intervals_Speed)**2 + (thresholdEveryCondition$Threshold_8intervals_Accuracy - thresholdEveryCondition$Threshold_8intervals_Speed)**2)
 kable(test.params(as.data.frame(Distance_Fixed-Distance_8)))
 
+# Normalized distance
 
+# Threshold & Drift overall min & max
+a_max = max(rbind(thresholdEveryCondition$Threshold_Fixed_Accuracy,
+                  thresholdEveryCondition$Threshold_2intervals_Accuracy,
+                  thresholdEveryCondition$Threshold_4intervals_Accuracy,
+                  thresholdEveryCondition$Threshold_8intervals_Accuracy,
+                  thresholdEveryCondition$Threshold_Fixed_Speed,
+                  thresholdEveryCondition$Threshold_2intervals_Speed,
+                  thresholdEveryCondition$Threshold_4intervals_Speed,
+                  thresholdEveryCondition$Threshold_8intervals_Speed))
+
+a_min = min(rbind(thresholdEveryCondition$Threshold_Fixed_Accuracy,
+                  thresholdEveryCondition$Threshold_2intervals_Accuracy,
+                  thresholdEveryCondition$Threshold_4intervals_Accuracy,
+                  thresholdEveryCondition$Threshold_8intervals_Accuracy,
+                  thresholdEveryCondition$Threshold_Fixed_Speed,
+                  thresholdEveryCondition$Threshold_2intervals_Speed,
+                  thresholdEveryCondition$Threshold_4intervals_Speed,
+                  thresholdEveryCondition$Threshold_8intervals_Speed))
+
+v_max = max(rbind(driftEveryCondition$Drift_Fixed_Accuracy,
+                  driftEveryCondition$Drift_2intervals_Accuracy,
+                  driftEveryCondition$Drift_4intervals_Accuracy,
+                  driftEveryCondition$Drift_8intervals_Accuracy,
+                  driftEveryCondition$Drift_Fixed_Speed,
+                  driftEveryCondition$Drift_2intervals_Speed,
+                  driftEveryCondition$Drift_4intervals_Speed,
+                  driftEveryCondition$Drift_8intervals_Speed))
+
+v_min = min(rbind(driftEveryCondition$Drift_Fixed_Accuracy,
+                  driftEveryCondition$Drift_2intervals_Accuracy,
+                  driftEveryCondition$Drift_4intervals_Accuracy,
+                  driftEveryCondition$Drift_8intervals_Accuracy,
+                  driftEveryCondition$Drift_Fixed_Speed,
+                  driftEveryCondition$Drift_2intervals_Speed,
+                  driftEveryCondition$Drift_4intervals_Speed,
+                  driftEveryCondition$Drift_8intervals_Speed))
+
+# Normalization
+v_rangeNorm <- function(x){
+  (x-v_min)/(v_max-v_min)
+}
+a_rangeNorm <- function(x){
+  (x-a_min)/(a_max-a_min)
+}
+
+Distance_Fixed = sqrt((v_rangeNorm(driftEveryCondition$Drift_Fixed_Accuracy) - v_rangeNorm(driftEveryCondition$Drift_Fixed_Speed))**2 + (a_rangeNorm(thresholdEveryCondition$Threshold_Fixed_Accuracy) - a_rangeNorm(thresholdEveryCondition$Threshold_Fixed_Speed))**2)
+kable(test.params(as.data.frame(Distance_Fixed)))
+
+Distance_2 = sqrt((v_rangeNorm(driftEveryCondition$Drift_2intervals_Accuracy) - v_rangeNorm(driftEveryCondition$Drift_2intervals_Speed))**2 + (a_rangeNorm(thresholdEveryCondition$Threshold_2intervals_Accuracy) - a_rangeNorm(thresholdEveryCondition$Threshold_2intervals_Speed))**2)
+kable(test.params(as.data.frame(Distance_Fixed-Distance_2)))
+
+Distance_4 = sqrt((v_rangeNorm(driftEveryCondition$Drift_4intervals_Accuracy) - v_rangeNorm(driftEveryCondition$Drift_4intervals_Speed))**2 + (a_rangeNorm(thresholdEveryCondition$Threshold_4intervals_Accuracy) - a_rangeNorm(thresholdEveryCondition$Threshold_4intervals_Speed))**2)
+kable(test.params(as.data.frame(Distance_Fixed-Distance_4)))
+
+Distance_8 = sqrt((v_rangeNorm(driftEveryCondition$Drift_8intervals_Accuracy) - v_rangeNorm(driftEveryCondition$Drift_8intervals_Speed))**2 + (a_rangeNorm(thresholdEveryCondition$Threshold_8intervals_Accuracy) - a_rangeNorm(thresholdEveryCondition$Threshold_8intervals_Speed))**2)
+kable(test.params(as.data.frame(Distance_Fixed-Distance_8)))
 
 
 ```

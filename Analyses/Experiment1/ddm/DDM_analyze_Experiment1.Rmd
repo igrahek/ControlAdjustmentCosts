@@ -1859,6 +1859,28 @@ Distance_Mixed = sqrt((traces$v_Acc_Mixed - traces$v_Speed_Mixed)**2 + (traces$a
 Distance_Diff = Distance_Fixed - Distance_Mixed
 kable(test.params(as.data.frame(Distance_Diff)))
 
+# Normalized distance
+
+# Threshold & Drift overall min & max
+a_max = max(rbind(traces$a_Acc_Fixed,traces$a_Speed_Fixed,traces$a_Acc_Mixed,traces$a_Speed_Mixed))
+a_min = min(rbind(traces$a_Acc_Fixed,traces$a_Speed_Fixed,traces$a_Acc_Mixed,traces$a_Speed_Mixed))
+v_max = max(rbind(traces$v_Acc_Fixed,traces$v_Speed_Fixed,traces$v_Acc_Mixed,traces$v_Speed_Mixed))
+v_min = min(rbind(traces$v_Acc_Fixed,traces$v_Speed_Fixed,traces$v_Acc_Mixed,traces$v_Speed_Mixed))
+
+# Normalization
+v_rangeNorm <- function(x){
+  (x-v_min)/(v_max-v_min)
+}
+a_rangeNorm <- function(x){
+  (x-a_min)/(a_max-a_min)
+}
+
+Distance_Fixed = sqrt((v_rangeNorm(traces$v_Acc_Fixed) - v_rangeNorm(traces$v_Speed_Fixed))**2 + (a_rangeNorm(traces$a_Acc_Fixed) - a_rangeNorm(traces$a_Speed_Fixed))**2)
+Distance_Mixed = sqrt((v_rangeNorm(traces$v_Acc_Mixed) - v_rangeNorm(traces$v_Speed_Mixed))**2 + (a_rangeNorm(traces$a_Acc_Mixed) - a_rangeNorm(traces$a_Speed_Mixed))**2)
+Distance_Diff = Distance_Fixed - Distance_Mixed
+kable(test.params(as.data.frame(Distance_Diff)))
+
+
 ```
 
 ### Speed (drift)
@@ -3783,6 +3805,60 @@ Fig2.DDM_Switch = p
 
 
 ## Stats
+
+### Mini meta analysis
+
+
+```{r, message=FALSE}
+# Drift
+Acc_min_Speed_Repeat_V = traces$v_Acc_Repeat - traces$v_Speed_Repeat
+kable(test.params(as.data.frame(Acc_min_Speed_Repeat_V)))
+
+Acc_min_Speed_Switch_V = traces$v_Acc_Switch - traces$v_Speed_Switch
+kable(test.params(as.data.frame(Acc_min_Speed_Switch_V)))
+
+# interaction
+kable(test.params(as.data.frame(Acc_min_Speed_Repeat_V - Acc_min_Speed_Switch_V)))
+
+# Threshold
+Acc_min_Speed_Repeat_A = traces$a_Acc_Repeat - traces$a_Speed_Repeat
+kable(test.params(as.data.frame(Acc_min_Speed_Repeat_A)))
+
+Acc_min_Speed_Switch_A = traces$a_Acc_Switch - traces$a_Speed_Switch
+kable(test.params(as.data.frame(Acc_min_Speed_Varying_A)))
+# interaction
+kable(test.params(as.data.frame(Acc_min_Speed_Repeat_A - Acc_min_Speed_Switch_A)))
+
+
+# Distance
+Distance_Repeat = sqrt((traces$v_Acc_Repeat - traces$v_Speed_Repeat)**2 + (traces$a_Acc_Repeat - traces$a_Speed_Repeat)**2)
+Distance_Switch = sqrt((traces$v_Acc_Switch - traces$v_Speed_Switch)**2 + (traces$a_Acc_Switch - traces$a_Speed_Switch)**2)
+Distance_Diff = Distance_Repeat - Distance_Switch
+kable(test.params(as.data.frame(Distance_Diff)))
+
+# Normalized distance
+
+# Threshold & Drift overall min & max
+a_max = max(rbind(traces$a_Acc_Repeat,traces$a_Speed_Repeat,traces$a_Acc_Switch,traces$a_Speed_Switch))
+a_min = min(rbind(traces$a_Acc_Repeat,traces$a_Speed_Repeat,traces$a_Acc_Switch,traces$a_Speed_Switch))
+v_max = max(rbind(traces$v_Acc_Repeat,traces$v_Speed_Repeat,traces$v_Acc_Switch,traces$v_Speed_Switch))
+v_min = min(rbind(traces$v_Acc_Repeat,traces$v_Speed_Repeat,traces$v_Acc_Switch,traces$v_Speed_Switch))
+
+# Normalization
+v_rangeNorm <- function(x){
+  (x-v_min)/(v_max-v_min)
+}
+a_rangeNorm <- function(x){
+  (x-a_min)/(a_max-a_min)
+}
+
+Distance_Repeat = sqrt((v_rangeNorm(traces$v_Acc_Repeat) - v_rangeNorm(traces$v_Speed_Repeat))**2 + (a_rangeNorm(traces$a_Acc_Repeat) - a_rangeNorm(traces$a_Speed_Repeat))**2)
+Distance_Switch = sqrt((v_rangeNorm(traces$v_Acc_Switch) - v_rangeNorm(traces$v_Speed_Switch))**2 + (a_rangeNorm(traces$a_Acc_Switch) - a_rangeNorm(traces$a_Speed_Switch))**2)
+Distance_Diff = Distance_Repeat - Distance_Switch
+kable(test.params(as.data.frame(Distance_Diff)))
+
+
+```
 
 ### Speed (drift)
 
