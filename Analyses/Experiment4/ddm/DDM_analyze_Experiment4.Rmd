@@ -1677,21 +1677,43 @@ ratio.true <- sum(!df.ppc.data$Response)/sum(df.ppc.data$Response)
 ratio.simu <- sum(!df.ppc.sim$simResponse)/sum(df.ppc.sim$simResponse)
 
 # Density plots with means
-ggplot(df.ppc.data %>% filter(Response),
-       aes(x=rt_unsigned,color='Correct',linetype='True')) +
-  geom_density(size=1) +
-  geom_density(data=df.ppc.data %>% filter(!Response),
+p = ggplot(df.ppc.data %>% filter(Response),
+      aes(x=rt_unsigned,color='Correct',linetype='True')) +
+      geom_density(size=1) +
+      geom_density(data=df.ppc.data %>% filter(!Response),
                size=1,
-               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True'),
-  ) +
-  geom_density(data=df.ppc.sim %>% filter(simResponse),
+               aes(x=rt_unsigned,y=-..density..*ratio.true,color='Incorrect',linetype='True')) +
+      geom_density(data=df.ppc.sim %>% filter(simResponse),
                size=1,
                aes(x=rt_sampled_unsigned,color='Correct',linetype='Simulation')) +
-  geom_density(data=df.ppc.sim %>% filter(!simResponse),
+      geom_density(data=df.ppc.sim %>% filter(!simResponse),
                size=1,
-               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation'),
-  ) + geom_hline(yintercept=0) + ggdensity +
-  xlab('Reaction Time') + coord_cartesian(xlim=c(0,2)) + facet_grid(cols=vars(intervalType,blockType)) + scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red'))
+               aes(x=rt_sampled_unsigned,y=-..density..*ratio.simu,color='Incorrect',linetype='Simulation')) + 
+      geom_hline(yintercept=0) + 
+      ggdensity +
+      xlab('Reaction Time') + 
+      ylab('Density') + 
+      coord_cartesian(xlim=c(0,2),ylim=c(-0.3,3)) + 
+      facet_grid(cols=vars(intervalType),rows=vars(blockType)) +
+      scale_linetype_manual(name='Data:',values=c('Simulation'=1,'True'=2)) + 
+      scale_color_manual(name='Response:',values=c('Correct'='blue','Incorrect'='red')) + 
+      theme(axis.line = element_line(colour = "black"),
+          plot.margin=grid::unit(c(5,5,5,5), "mm"),
+          axis.title.y = element_text(margin = margin(t = 0, r = 0, b = 0, l = 0),color="black"),
+          text = element_text(size=25,color = "black"),
+          panel.border = element_rect (colour = "black", fill = F),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank(),
+          axis.text.x = element_text(color="black"),
+          axis.text.y = element_text(color="black"),
+          axis.ticks = element_line(color = "black"),
+          legend.position = c(0.8, 0.25),
+          legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+FigS1_D = p
 ```
 
 
@@ -2509,6 +2531,14 @@ p
 dev.off()
 
 
+# Save the figure
+pdf(file="../../../Manuscript/figures/Figure_S1_D.pdf",height=20,width=10)
+
+p = cowplot::plot_grid(FigS1_D,
+                       nrow = 1,
+                       ncol = 1)
+p
+dev.off()
 
 
 
