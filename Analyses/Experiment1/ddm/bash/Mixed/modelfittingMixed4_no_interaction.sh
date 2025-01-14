@@ -9,6 +9,7 @@
 #SBATCH --mail-user=ivan_grahek@brown.edu
 #SBATCH -J Exp1_modelMixed4_no_interaction
 #SBATCH -o R-%x.%j.out
+module purge
 module load anaconda
 source activate /users/igrahek/anaconda/pyHDDM
 python ../../script/model_fitting_extended.py ../../models/modelMixed4_no_interaction.json
