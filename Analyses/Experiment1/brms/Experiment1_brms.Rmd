@@ -858,6 +858,590 @@ Fig2.Acc_Switch = p
 
 
 
+
+# Congruency analyses
+
+## Reaction times
+
+### Import the model
+
+```{r,warning=T, message=T}
+
+model = readRDS("Cluster/output/model.RT_Congruency.rds")
+
+```
+
+### Checks
+
+Plotting the chains
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+plot(model, pars = "^b_", ask = FALSE, N=4)
+```
+
+R hat
+```{r, warning=FALSE, message=FALSE}
+# R hat for all parameters
+stanplot(model, type="rhat_hist")
+```
+
+
+Posterior predictive check
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+pp_check(model)
+```
+
+### Summary of the best model
+
+```{r, warning=FALSE, message=FALSE}
+# Summary of the model
+x=summary(model)[["fixed"]]
+x$`HDI(95%)` = paste(format(round(x$`l-95% CI`, 2), nsmall = 2), format(round(x$`u-95% CI`, 2), nsmall = 2), sep=", ")
+x$`l-95% CI` = NULL
+x$`u-95% CI` = NULL
+x$Bulk_ESS = NULL
+x$Rhat = NULL
+x$Tail_ESS = NULL
+
+# add a row name column
+names = rownames(x)
+x = cbind(names,x)
+rownames(x) = NULL
+
+# add a row name column
+# turn into numeric to round
+x$Estimate = as.numeric(x$Estimate)
+x$Est.Error = as.numeric(x$Est.Error)
+
+# calculate the posterior probabilities
+x$PostProb = posterior_probabilities(model)
+
+# edit the column names
+kable(x,digits = 2,col.names = c("Parameter", "Estimate", "SE", "CI (95%)","p<0"),align = "lrrrr")
+
+```
+
+#### Make the posterior conditions
+
+```{r, warning=FALSE, message=FALSE}
+
+# plot_model(model,type = "pred", terms = c("intervalType","blockType","Congruency"))
+
+# Calculate the posteriors per condition
+posterior=emmeans(model,specs=~intervalType|blockType|Congruency,epred = TRUE)
+
+posteriorConditions = gather_emmeans_draws(posterior)
+
+# Calculate the conditions
+Speed_Fixed_Congruent = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed" & Congruency=="congruent")
+Speed_Varying_Congruent = subset(posteriorConditions,intervalType=="Speed" & blockType=="Mixed" & Congruency=="congruent")
+
+Accuracy_Fixed_Congruent = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed" & Congruency=="congruent")
+Accuracy_Varying_Congruent = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Mixed" & Congruency=="congruent")
+
+Speed_Fixed_Incongruent = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed" & Congruency=="incongruent")
+Speed_Varying_Incongruent = subset(posteriorConditions,intervalType=="Speed" & blockType=="Mixed" & Congruency=="incongruent")
+
+Accuracy_Fixed_Incongruent = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed" & Congruency=="incongruent")
+Accuracy_Varying_Incongruent = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Mixed" & Congruency=="incongruent")
+
+# Calculate the conditions
+Speed_Fixed = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed")
+posterior_summary(Speed_Fixed$.value)
+Speed_Varying = subset(posteriorConditions,intervalType=="Speed" & blockType=="Mixed")
+posterior_summary(Speed_Varying$.value)
+
+Accuracy_Fixed = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed")
+Accuracy_Varying = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Mixed")
+
+
+# 
+# # Create a matrix
+# p1 = ddply(p1,.(blockType,intervalType),plyr::summarize,
+#                       estimate__ = posterior_summary(Estimate)[1],
+#                       lower__ = posterior_summary(Estimate)[3],
+#                       upper__ = posterior_summary(Estimate)[4])
+
+
+
+
+# # Default plot
+# p = conditional_effects(model, effects = "intervalType:blockType")
+# 
+# # Convert to a data frame
+# p = as.data.frame(p$`intervalType:blockType`)
+# p
+
+```
+
+#### Comparing the conditions
+
+Speed goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Speed_Goal = Speed_Varying$.value - Speed_Fixed$.value
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed goal: Varying - Fixed", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+Accuracy goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Accuracy goal
+Accuracy_Goal = Accuracy_Varying$.value - Accuracy_Fixed$.value
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy goal: Varying - Fixed", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+Adjustment cost 
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Cost = (Speed_Varying$.value - Accuracy_Varying$.value) - (Speed_Fixed$.value - Accuracy_Fixed$.value)
+Cost = as.data.frame(Cost)
+h = (hypothesis(Cost,"Cost<0"))
+kable(as.data.frame(h$hypothesis),caption="Cost")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Cost", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+Adjustment cost in congruent
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Cost_Congruent = (Speed_Varying_Congruent$.value - Accuracy_Varying_Congruent$.value) - (Speed_Fixed_Congruent$.value - Accuracy_Fixed_Congruent$.value)
+Cost_Congruent = as.data.frame(Cost_Congruent)
+h = (hypothesis(Cost_Congruent,"Cost_Congruent<0"))
+kable(as.data.frame(h$hypothesis),caption="Cost in congruent")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Cost in congruent", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+Adjustment cost in incongruent
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Cost_Incongruent = (Speed_Varying_Incongruent$.value - Accuracy_Varying_Incongruent$.value) - (Speed_Fixed_Incongruent$.value - Accuracy_Fixed_Incongruent$.value)
+Cost_Incongruent = as.data.frame(Cost_Incongruent)
+h = (hypothesis(Cost_Incongruent,"Cost_Incongruent<0"))
+kable(as.data.frame(h$hypothesis),caption="Cost in incongruent")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Cost in incongruent", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+### Plotting the  model
+
+```{r, warning=FALSE, message=FALSE}
+
+# Extract posteriors
+posterior = as_draws_df(model, variable = c("b_Intercept",
+                                            "b_intervalTypeSpeed_min_Accuracy",
+                                            "b_blockTypeMixed_min_Fixed",
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeMixed_min_Fixed",
+                                            "b_Congruencyinc_min_con",
+                                            "b_Congruencyinc_min_con:intervalTypeSpeed_min_Accuracy",
+                                            "b_Congruencyinc_min_con:blockTypeMixed_min_Fixed",
+                                            "b_Congruencyinc_min_con:intervalTypeSpeed_min_Accuracy:blockTypeMixed_min_Fixed"))
+
+coding.intervalType = cbind(c(1,1),contr.sum(2))
+coding.blockType = cbind(c(1,1),contr.sum(2))
+coding.isi = cbind(c(1,1),contr.sum(2))
+coding.total = coding.isi %x% coding.blockType %x% coding.intervalType
+
+# Remove the non-necessary variables
+posterior = posterior[,1:8]
+
+# Set the intercept to the mean value
+posterior$b_Intercept = mean(posterior$b_Intercept)
+
+# Transform the posteriors
+Congruent_min_Incongruent = cbind(c(1,1),contr.sdif(2))
+Speed_min_Accuracy = cbind(c(1,1),contr.sdif(2))
+Mixed_min_Fixed = cbind(c(1,1),contr.sdif(2))
+coding.total = as.matrix(Congruent_min_Incongruent) %x% as.matrix(Speed_min_Accuracy) %x% as.matrix(Mixed_min_Fixed)
+
+# Create predictions from all the posterior samples
+results =  as.data.frame(t(coding.total %*% t(posterior)))
+colnames(results) = c("Speed_Varying_Congruent",
+                      "Accuracy_Varying_Congruent",
+                      "Speed_Fixed_Congruent",
+                      "Accuracy_Fixed_Congruent",
+                      "Speed_Varying_Incongruent",
+                      "Accuracy_Varying_Incongruent",
+                      "Speed_Fixed_Incongruent",
+                      "Accuracy_Fixed_Incongruent")
+
+results = as.data.frame(posterior_summary(results))
+results$factor = rownames(results)
+results = results %>% separate(factor,c('Interval Type','Block Type','Congruency'),'_')
+
+# Reorder the factor levels
+results$`Interval Type` = factor(results$`Interval Type`, levels = c("Speed", "Accuracy"))
+
+# Plot
+p = ggplot(results, aes(x = `Interval Type`, y = Estimate, linetype = `Block Type`, shape = `Block Type`, color = `Interval Type`)) +
+  geom_pointrange(aes(ymin = Q2.5, ymax = Q97.5), position = position_dodge(0.4), size = 2, fatten = 2) +
+  guides(color = guide_legend(override.aes = list(shape = 20))) +
+  ylab("Reaction times (ms)") +
+  xlab("Performance goal") +
+  scale_x_discrete(labels = c("Speed", "Accuracy"), expand = c(0.2, 0.2)) +
+  scale_y_continuous(limits = c(600,850))+
+  scale_color_viridis(discrete = TRUE, option = "plasma", end = 0.7) +
+  facet_grid(~Congruency)+
+  
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin = grid::unit(c(5, 85, 5, 5), "mm"),
+        axis.line.x.bottom = element_line(size = 0.5),
+        axis.line.y.left = element_line(size = 0.5),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size = 33, color = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+        axis.text.x = element_text(color = "black"),
+        axis.text.y = element_text(color = "black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+Fig2.RT_Congruency = p
+
+```
+
+
+
+
+
+
+
+
+## Accuracy
+
+### Import the model
+
+```{r,warning=T, message=T}
+
+model = readRDS("Cluster/output/model.Acc_Congruency.rds")
+
+```
+
+### Checks
+
+Plotting the chains
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+plot(model, pars = "^b_", ask = FALSE, N=4)
+```
+
+R hat
+```{r, warning=FALSE, message=FALSE}
+# R hat for all parameters
+stanplot(model, type="rhat_hist")
+```
+
+
+Posterior predictive check
+```{r, warning=FALSE, message=FALSE}
+# Plot chains
+pp_check(model)
+```
+
+### Summary of the best model
+
+```{r, warning=FALSE, message=FALSE}
+# Summary of the model
+x=summary(model)[["fixed"]]
+x$`HDI(95%)` = paste(format(round(x$`l-95% CI`, 2), nsmall = 2), format(round(x$`u-95% CI`, 2), nsmall = 2), sep=", ")
+x$`l-95% CI` = NULL
+x$`u-95% CI` = NULL
+x$Bulk_ESS = NULL
+x$Rhat = NULL
+x$Tail_ESS = NULL
+
+# add a row name column
+names = rownames(x)
+x = cbind(names,x)
+rownames(x) = NULL
+
+
+# turn into numeric to round
+x$Estimate = as.numeric(x$Estimate)
+x$Est.Error = as.numeric(x$Est.Error)
+
+# calculate the posterior probabilities
+x$PostProb = posterior_probabilities(model)
+
+# edit the column names
+kable(x,digits = 2,col.names = c("Parameter", "Estimate", "SE", "CI (95%)","p<0"),align = "lrrrr")
+
+```
+
+
+#### Make the posterior conditions
+
+```{r, warning=FALSE, message=FALSE}
+
+# plot_model(model,type = "pred", terms = c("intervalType","blockType","Congruency"))
+
+# Calculate the posteriors per condition
+posterior=emmeans(model,specs=~intervalType|blockType|Congruency,epred = TRUE)
+
+posteriorConditions = gather_emmeans_draws(posterior)
+
+# Calculate the conditions
+Speed_Fixed_Congruent = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed" & Congruency=="congruent")
+Speed_Varying_Congruent = subset(posteriorConditions,intervalType=="Speed" & blockType=="Mixed" & Congruency=="congruent")
+
+Accuracy_Fixed_Congruent = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed" & Congruency=="congruent")
+Accuracy_Varying_Congruent = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Mixed" & Congruency=="congruent")
+
+Speed_Fixed_Incongruent = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed" & Congruency=="incongruent")
+Speed_Varying_Incongruent = subset(posteriorConditions,intervalType=="Speed" & blockType=="Mixed" & Congruency=="incongruent")
+
+Accuracy_Fixed_Incongruent = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed" & Congruency=="incongruent")
+Accuracy_Varying_Incongruent = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Mixed" & Congruency=="incongruent")
+
+# Calculate the conditions
+Speed_Fixed = subset(posteriorConditions,intervalType=="Speed" & blockType=="Fixed")
+posterior_summary(Speed_Fixed$.value)
+Speed_Varying = subset(posteriorConditions,intervalType=="Speed" & blockType=="Mixed")
+posterior_summary(Speed_Varying$.value)
+
+Accuracy_Fixed = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Fixed")
+Accuracy_Varying = subset(posteriorConditions,intervalType=="Accuracy" & blockType=="Mixed")
+
+
+# 
+# # Create a matrix
+# p1 = ddply(p1,.(blockType,intervalType),plyr::summarize,
+#                       estimate__ = posterior_summary(Estimate)[1],
+#                       lower__ = posterior_summary(Estimate)[3],
+#                       upper__ = posterior_summary(Estimate)[4])
+
+
+
+
+# # Default plot
+# p = conditional_effects(model, effects = "intervalType:blockType")
+# 
+# # Convert to a data frame
+# p = as.data.frame(p$`intervalType:blockType`)
+# p
+
+```
+
+#### Comparing the conditions
+
+Speed goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Speed_Goal = Speed_Varying$.value - Speed_Fixed$.value
+Speed_Goal = as.data.frame(Speed_Goal)
+h = (hypothesis(Speed_Goal,"Speed_Goal<0"))
+kable(as.data.frame(h$hypothesis),caption="Speed (varying vs. fixed)")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Speed goal: Varying - Fixed", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+Accuracy goal
+
+```{r, warning=FALSE, message=FALSE}
+
+# Accuracy goal
+Accuracy_Goal = Accuracy_Varying$.value - Accuracy_Fixed$.value
+Accuracy_Goal = as.data.frame(Accuracy_Goal)
+h = (hypothesis(Accuracy_Goal,"Accuracy_Goal>0"))
+kable(as.data.frame(h$hypothesis),caption="Accuracy (varying vs. fixed)")
+
+hist(Accuracy_Goal$Accuracy_Goal,col="lightblue", main="Accuracy goal: Varying - Fixed", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+
+```
+
+Adjustment cost 
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Cost = (Speed_Varying$.value - Accuracy_Varying$.value) - (Speed_Fixed$.value - Accuracy_Fixed$.value)
+Cost = as.data.frame(Cost)
+h = (hypothesis(Cost,"Cost<0"))
+kable(as.data.frame(h$hypothesis),caption="Cost")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Cost", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+
+Adjustment cost in congruent
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Cost_Congruent = (Speed_Varying_Congruent$.value - Accuracy_Varying_Congruent$.value) - (Speed_Fixed_Congruent$.value - Accuracy_Fixed_Congruent$.value)
+Cost_Congruent = as.data.frame(Cost_Congruent)
+h = (hypothesis(Cost_Congruent,"Cost_Congruent<0"))
+kable(as.data.frame(h$hypothesis),caption="Cost in congruent")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Cost in congruent", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+
+Adjustment cost in incongruent
+
+```{r, warning=FALSE, message=FALSE}
+
+# Speed goal
+Cost_Incongruent = (Speed_Varying_Incongruent$.value - Accuracy_Varying_Incongruent$.value) - (Speed_Fixed_Incongruent$.value - Accuracy_Fixed_Incongruent$.value)
+Cost_Incongruent = as.data.frame(Cost_Incongruent)
+h = (hypothesis(Cost_Incongruent,"Cost_Incongruent<0"))
+kable(as.data.frame(h$hypothesis),caption="Cost in incongruent")
+
+hist(Speed_Goal$Speed_Goal,col="lightblue", main="Cost in incongruent", xlab="", breaks = 30)  
+abline(v = 0, col="black", lwd=3, lty=2)
+
+```
+### Plotting the  model
+
+```{r, warning=FALSE, message=FALSE}
+# Extract posteriors
+posterior = as_draws_df(model, variable = c("b_Intercept",
+                                            "b_intervalTypeSpeed_min_Accuracy",
+                                            "b_blockTypeMixed_min_Fixed",
+                                            "b_intervalTypeSpeed_min_Accuracy:blockTypeMixed_min_Fixed",
+                                            "b_Congruencyinc_min_con",
+                                            "b_Congruencyinc_min_con:intervalTypeSpeed_min_Accuracy",
+                                            "b_Congruencyinc_min_con:blockTypeMixed_min_Fixed",
+                                            "b_Congruencyinc_min_con:intervalTypeSpeed_min_Accuracy:blockTypeMixed_min_Fixed"))
+
+coding.intervalType = cbind(c(1,1),contr.sum(2))
+coding.blockType = cbind(c(1,1),contr.sum(2))
+coding.isi = cbind(c(1,1),contr.sum(2))
+coding.total = coding.isi %x% coding.blockType %x% coding.intervalType
+
+# Remove the non-necessary variables
+posterior = posterior[,1:8]
+
+# Set the intercept to the mean value
+posterior$b_Intercept = mean(posterior$b_Intercept)
+
+# Transform the posteriors
+Congruent_min_Incongruent = cbind(c(1,1),contr.sdif(2))
+Speed_min_Accuracy = cbind(c(1,1),contr.sdif(2))
+Mixed_min_Fixed = cbind(c(1,1),contr.sdif(2))
+coding.total = as.matrix(Congruent_min_Incongruent) %x% as.matrix(Speed_min_Accuracy) %x% as.matrix(Mixed_min_Fixed)
+
+# Create predictions from all the posterior samples
+results =  as.data.frame(t(coding.total %*% t(posterior)))
+colnames(results) = c("Speed_Varying_Congruent",
+                      "Accuracy_Varying_Congruent",
+                      "Speed_Fixed_Congruent",
+                      "Accuracy_Fixed_Congruent",
+                      "Speed_Varying_Incongruent",
+                      "Accuracy_Varying_Incongruent",
+                      "Speed_Fixed_Incongruent",
+                      "Accuracy_Fixed_Incongruent")
+
+results = as.data.frame(posterior_summary(results))
+results$factor = rownames(results)
+results = results %>% separate(factor,c('Interval Type','Block Type','Congruency'),'_')
+
+# Turn logits into probabilities
+results$Estimate = exp(results$Estimate)
+results$Estimate = results$Estimate / (1 + results$Estimate)
+
+results$Q2.5 = exp(results$Q2.5)
+results$Q2.5 = results$Q2.5 / (1 + results$Q2.5)
+
+results$Q97.5 = exp(results$Q97.5)
+results$Q97.5 = results$Q97.5 / (1 + results$Q97.5)
+
+# Reorder the factor levels
+results$`Interval Type` = factor(results$`Interval Type`, levels = c("Speed", "Accuracy"))
+
+# Plot
+p = ggplot(results,aes(x=`Interval Type`,y=Estimate,linetype=`Block Type`,shape=`Block Type`,color=`Interval Type`)) + 
+  geom_pointrange(aes(ymin=Q2.5, ymax=Q97.5),position=position_dodge(0.4),size=2, fatten = 2) + 
+  guides(color = guide_legend(
+    override.aes=list(shape = 20)))+
+  
+  # ggtitle("Accuracy")+ 
+  ylab("Accuracy")+
+  xlab("Performance goal")+
+  scale_x_discrete(limits = c("Speed","Accuracy"), expand=c(0.2, 0.2))+
+  scale_y_continuous(limits = c(0.58,1))+
+  scale_color_viridis(discrete = TRUE ,option = "plasma",end=0.7)+
+  facet_grid(~Congruency)+
+  
+  theme(axis.line = element_line(colour = "black"),
+        plot.margin=grid::unit(c(5,85,5,5), "mm"),
+        axis.line.x.bottom=element_line(size=0.5),
+        axis.line.y.left=element_line(size=0.5),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=33,color = "black"),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold"),
+        axis.text.x = element_text(color="black"),
+        axis.text.y = element_text(color="black"),
+        axis.ticks = element_line(color = "black"),
+        legend.position = c(0.8, 0.25),
+        legend.background = element_rect(fill = "transparent", color = NA))  
+
+p
+
+
+
+Fig2.Acc_Congruency = p
+
+```
+
+
+
+
+
+
 # Save the figures
 
 
@@ -870,6 +1454,14 @@ p = cowplot::plot_grid(Fig2.RT,
                        Fig2.RT_Switch,
                        Fig2.Acc_Switch,
                        nrow = 2)
+p
+dev.off()
+
+pdf(file="../../../Manuscript/figures/Figure_2_behavior_congruency.pdf",height=6,width=22)
+
+p = cowplot::plot_grid(Fig2.RT_Congruency,
+                       Fig2.Acc_Congruency,
+                       nrow = 1)
 p
 dev.off()
 

@@ -2,6 +2,7 @@
 *.db
 *.html
 *.pdf
+*.Rhistory
 
 # Do not upload the downloaded models
 
